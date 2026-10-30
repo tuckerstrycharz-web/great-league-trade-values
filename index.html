@@ -183,6 +183,15 @@
   .tvx-bars .well { width: min(100%, 5.5rem); height: 140px; display: flex; flex-direction: column; justify-content: flex-end; border-bottom: 2px solid var(--cds-chart-baseline, var(--cds-chart-axis)); }
   .tvx-bars .seg { width: 100%; }
   .tvx-bars .seg.base { background: var(--c); border-radius: 0 0 0 0; }
+  .tvx-bars .seg.pl { background: var(--c); border-top: 1px solid var(--color-panel); display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 2px;
+    font-size: 10px; line-height: 1.1; font-weight: 600; color: #fff; text-align: center; white-space: nowrap; }
+  .tvx-bars .seg.pl:nth-child(even) { background: color-mix(in srgb, var(--c) 78%, var(--color-panel)); }
+  .tvx-bars .who { display: grid; gap: 1px; justify-items: center; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); text-align: center; max-width: 100%; }
+  .tvx-bars .who span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tvx-band { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .tvx-band .t { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-right: 2px; }
+  .tvx-band .c { font-family: var(--tvx-mono); font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--tvx-tint); white-space: nowrap; }
+  .tvx-band .c.str { background: var(--tvx-up-bg); color: var(--tvx-up); } .tvx-band .c.weak { background: var(--tvx-down-bg); color: var(--tvx-down); }
   .tvx-bars .seg.bonus { background: repeating-linear-gradient(135deg, var(--c) 0 4px, color-mix(in srgb, var(--c) 40%, transparent) 4px 8px); }
   .tvx-bars .seg:first-child { border-radius: 4px 4px 0 0; }
   .tvx-bars .tot { font-family: var(--tvx-mono); font-weight: 600; }
@@ -1381,6 +1390,26 @@ dash.calc('trade_values', {
     li.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
     return li;
   }
+  const POS_K = { QB: 1, RB: 3, WR: 3, TE: 1 };
+  const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+  const posBand = (team, add, drop) => {
+    const S = trade.vsrc, all = [...TV.values()];
+    const teams = [...new Set(all.map((p) => p.owner))].filter((o) => o !== 'Free agent');
+    const strength = (players, pos) => players.filter((p) => p.pos === pos).map((p) => p[S] || 0).sort((a, b) => b - a).slice(0, POS_K[pos]).reduce((s, v) => s + v, 0);
+    const now = (t) => all.filter((p) => p.owner === t);
+    const after = all.filter((p) => (p.owner === team && !drop.has(p.player_id)) || add.has(p.player_id));
+    const band = el('div', 'tvx-band'); band.append(el('span', 't', 'League rank'));
+    for (const pos of Object.keys(POS_K)) {
+      const others = teams.filter((t) => t !== team).map((t) => strength(now(t), pos));
+      const rank = (v) => 1 + others.filter((o) => o > v).length;
+      const r0 = rank(strength(now(team), pos)), r1 = rank(strength(after, pos)), n = teams.length;
+      const tier = (r) => r <= Math.round(n / 3) ? 'str' : r > n - Math.round(n / 3) ? 'weak' : '';
+      const c = el('span', 'c ' + tier(r1), `${pos} ${ordinal(r0)}${r1 !== r0 ? ' → ' + ordinal(r1) : ''}`);
+      c.title = `${pos} strength = best ${POS_K[pos]} by ${SRC_NAME[S]} value · rank among ${n} teams${r1 !== r0 ? ' (after this trade)' : ''}`;
+      band.append(c);
+    }
+    return band;
+  };
   function teamSide(box, which) {
     const key = which === 'a' ? 'teamA' : 'teamB', set = trade[which];
     const head = el('div', 'tvx-side-head');
@@ -1403,8 +1432,9 @@ dash.calc('trade_values', {
       return;
     }
     const ul = el('ul', 'tvx-roster');
+    const band = posBand(trade[key], trade[which === 'a' ? 'b' : 'a'], set);
     [...TV.values()].filter((p) => p.owner === trade[key]).sort((a, c) => (c[trade.vsrc] - a[trade.vsrc]) || a.name.localeCompare(c.name)).forEach((p) => ul.append(rosterItem(p, set)));
-    box.replaceChildren(head, ul);
+    box.replaceChildren(head, band, ul);
   }
   function anySide(box, which) {
     const set = trade[which], qk = 'q' + which, other = which === 'a' ? trade.b : trade.a;
@@ -1606,17 +1636,24 @@ dash.calc('trade_values', {
     const r = evaluate(), S = trade.vsrc;
     const absPct = Math.abs(r.gapPct * 100);
     const verdict = !trade.a.size || !trade.b.size ? 'One side is empty' : absPct <= 5 ? 'Fair trade' : `${r.gap > 0 ? nameA : nameB} wins by ${absPct.toFixed(1)}%`;
-    // two bars side by side: value received, with the best-player bonus stacked on top
+    // two bars side by side, one per team: the players it has and is sending, stacked, plus the best-player bonus on the
+    // package that holds the deal's best player (the other side's total is this package)
     const scale = el('div', 'tvx-bars'), peak = Math.max(r.adjA, r.adjB) || 1;
-    [[nameA, r.gotA, r.adjA, 'var(--cds-chart-categorical-1)'], [nameB, r.gotB, r.adjB, 'var(--cds-chart-categorical-2)']].forEach(([nm, got, tot, c]) => {
+    [[nameA, trade.a, r.gotB, r.adjB, 'var(--cds-chart-categorical-1)'], [nameB, trade.b, r.gotA, r.adjA, 'var(--cds-chart-categorical-2)']].forEach(([nm, ids, val, tot, c]) => {
       const col = el('div', 'col'); col.style.setProperty('--c', c);
-      const well = el('div', 'well'), bonus = tot - got;
+      const well = el('div', 'well'), bonus = tot - val, H = 140;
+      const ps = [...ids].map((id) => TV.get(id)).filter(Boolean).sort((x, y) => (x[S] || 0) - (y[S] || 0)); // smallest on top
       if (bonus > 0) { const s = el('div', 'seg bonus'); s.style.height = (bonus / peak * 100) + '%'; s.title = `Best player bonus ${fmtChg(S, bonus)}`; well.append(s); }
-      const b = el('div', 'seg base'); b.style.height = (got / peak * 100) + '%'; b.title = `Gets ${fmtV(S, got)}`; well.append(b);
-      col.append(el('div', 'tot', fmtV(S, tot)), well, el('div', 'nm', nm), el('div', 'sub', `gets ${fmtV(S, got)}${bonus > 0 ? ` · bonus ${fmtChg(S, bonus)}` : ''}`));
+      ps.forEach((p) => {
+        const v = p[S] || 0, s = el('div', 'seg pl'); s.style.height = (v / peak * 100) + '%'; s.title = `${p.name} ${fmtV(S, v)}`;
+        if (v / peak * H >= 15) s.textContent = p.name.split(' ').slice(1).join(' ').replace(/ (Jr\.|Sr\.|II|III|IV)$/, '') || p.name;
+        well.append(s);
+      });
+      const who = el('div', 'who'); ps.slice().reverse().forEach((p) => who.append(el('span', null, `${p.name} ${fmtV(S, p[S] || 0)}`)));
+      col.append(el('div', 'tot', fmtV(S, tot)), well, el('div', 'nm', nm), el('div', 'sub', `sends ${fmtV(S, val)}${bonus > 0 ? ` · bonus ${fmtChg(S, bonus)}` : ''}`), who);
       scale.append(col);
     });
-    const lab = el('div', 'tvx-bars-key'); const k1 = el('span'), k2 = el('span'); k1.append(el('span', 'sw'), document.createTextNode('Value received')); k2.append(el('span', 'sw bonus'), document.createTextNode('Best player bonus')); lab.append(k1, k2);
+    const lab = el('div', 'tvx-bars-key'); const k1 = el('span'), k2 = el('span'); k1.append(el('span', 'sw'), document.createTextNode('Players each team sends')); k2.append(el('span', 'sw bonus'), document.createTextNode('Best player bonus')); lab.append(k1, k2);
     const tb = el('table', 'tvx-ledger'); const body = el('tbody'); tb.append(body);
     const tr = (cells, cls) => { const t = el('tr', cls || ''); cells.forEach((c) => t.append(el('td', null, c))); body.append(t); };
     tr([`${nameA} gets`, fmtV(S, r.gotA)]);
