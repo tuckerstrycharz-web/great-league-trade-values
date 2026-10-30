@@ -15,7 +15,8 @@
   --cds-surface-popover: #ffffff; --cds-shadow-popover: 0 8px 24px rgba(0, 0, 0, .12), 0 2px 6px rgba(0, 0, 0, .08);
   --tvx-series: #2a78d6, #eb6834, #2f9e8f, #c9a227, #c2459a, #3b9a4a, #6250d6, #d64545;
 }
-@media (prefers-color-scheme: dark) { :root {
+/* Dark by default, whatever the device's setting */
+:root {
   --color-bg: #0b0b0b; --color-panel: #1a1a19; --color-fg: #f5f4ef; --color-fg-muted: #9c9b94;
   --color-border-line: rgba(255, 255, 255, .1); --color-ok: #5cbf6b; --color-bad: #ec6b67; --color-warn: #d9a63a;
   --cds-border: rgba(255, 255, 255, .1); --cds-text-secondary: #c3c2b7;
@@ -23,7 +24,8 @@
   --cds-chart-categorical-1: #3987e5; --cds-chart-categorical-2: #d95926; --cds-chart-categorical-7: #9085e9;
   --cds-surface-popover: #20201f; --cds-shadow-popover: 0 8px 24px rgba(0, 0, 0, .32), 0 2px 6px rgba(0, 0, 0, .2);
   --tvx-series: #3987e5, #d95926, #3fb5a5, #d6b23c, #d65aae, #4fb35f, #9085e9, #e05a5a;
-} }
+  color-scheme: dark;
+}
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }

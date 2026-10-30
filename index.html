@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0b0b">
 <title>The Great League: Stock Exchange</title>
 <meta name="description" content="Rest-of-season trade values for The Great League: 12-team, full PPR, 1QB.">
 <link rel="stylesheet" href="theme.css">
@@ -254,6 +256,18 @@
   .tvx-quote { container-type: inline-size; }
   .tvx-qtable { display: grid; grid-template-columns: minmax(0, 1fr); margin-top: var(--cds-gap-md); font-variant-numeric: tabular-nums; }
   .tvx-qsec { min-width: 0; }
+  .tvx-qtabs { display: none; margin-top: var(--cds-gap-md); }
+  .tvx-clip { display: none !important; }
+  .tvx-more { justify-self: start; margin-top: var(--cds-gap-sm); }
+  @media (max-width: 699px) {
+    .tvx-qtabs { display: inline-flex; }
+    .tvx-qtable { margin-top: var(--cds-gap-sm); }
+    .tvx-qtable .tvx-qsec .h { display: none; }
+    .tvx-qtable .tvx-qsec.g2 { margin-top: 0; }
+    .tvx-qtable:not(.show-g2) .tvx-qsec.g2, .tvx-qtable.show-g2 .tvx-qsec:not(.g2) { display: none; }
+    .tvx-tb-grid > .tvx-mid { order: -1; }
+    .tvx-flip .tvx-kind .lg { display: none; }
+  }
   .tvx-qsec .h { font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); }
   .tvx-qsec .r { display: flex; justify-content: space-between; align-items: baseline; gap: var(--cds-gap-md); padding: 6px var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); }
   .tvx-qsec .k { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
@@ -341,8 +355,8 @@
   </div>
 
   <section class="tvx-tiles" id="quotes">
-    <div class="tvx-card tvx-tile tvx-flip" data-span="season"><div class="tvx-flip-in"><div class="tvx-kind">Season · since Wk 1</div><div class="tvx-big">—</div></div></div>
-    <div class="tvx-card tvx-tile tvx-flip" data-span="season"><div class="tvx-flip-in"><div class="tvx-kind">Season · since Wk 1</div><div class="tvx-big">—</div></div></div>
+    <div class="tvx-card tvx-tile tvx-flip" data-span="season"><div class="tvx-flip-in"><div class="tvx-kind">Season<span class="lg"> · since Wk 1</span></div><div class="tvx-big">—</div></div></div>
+    <div class="tvx-card tvx-tile tvx-flip" data-span="season"><div class="tvx-flip-in"><div class="tvx-kind">Season<span class="lg"> · since Wk 1</span></div><div class="tvx-big">—</div></div></div>
     <div class="tvx-card tvx-tile tvx-flip" data-span="week"><div class="tvx-flip-in"><div class="tvx-kind">This week</div><div class="tvx-big">—</div></div></div>
     <div class="tvx-card tvx-tile tvx-flip" data-span="week"><div class="tvx-flip-in"><div class="tvx-kind">This week</div><div class="tvx-big">—</div></div></div>
   </section>
@@ -407,6 +421,7 @@
           </ul>
         </div>
       </div>
+      <div class="tvx-seg tvx-qtabs" id="qtabs" role="group" aria-label="Stats shown"><button type="button" data-q="1" aria-pressed="true">TRADE VALUE</button><button type="button" data-q="2" aria-pressed="false">ESPN POINTS</button></div>
       <div class="tvx-qtable">
         <div class="tvx-qsec">
           <div class="h">Trade value</div>
@@ -998,7 +1013,8 @@ dash.calc('trade_values', {
     const who = el('div', 'tvx-tile-who'); who.append(el('div', 'tvx-tile-name', r.name), el('div', 'tvx-tile-sub', `${r.pos} · ${r.team} · ${r.owner && r.owner !== 'Free agent' ? r.owner : 'free agent'}`));
     const row = el('div', 'tvx-tile-row'); row.append(photoImg(PHOTOS.get(r.player_id)), who);
     const big = el('div', 'tvx-big ' + dir(v), pct(v).replace(/^[+-]/, ''));
-    $('.tvx-flip-in', t).replaceChildren(el('div', 'tvx-kind', season ? 'Season · since Wk 1' : 'This week'), row, big,
+    const kind = el('div', 'tvx-kind', season ? 'Season' : 'This week'); if (season) kind.append(el('span', 'lg', ' · since Wk 1'));
+    $('.tvx-flip-in', t).replaceChildren(kind, row, big,
       el('div', 'tvx-tile-sub', `${fmtChg(src, chg)} · now ${fmtV(src, r[src + '_now'])}`));
     return big;
   };
@@ -1057,6 +1073,37 @@ dash.calc('trade_values', {
     render();
   });
   const searchEl = $('#tvx-search'), ownerEl = $('#tvx-owner');
+  // Phone layout: shorten long lists and tables, each with a button to show the rest
+  const PHONE = matchMedia('(max-width: 699px)'), opened = new Set();
+  const clamp = (box, items, n, key, label, keep = () => false) => {
+    if (!box) return;
+    box.parentElement.querySelectorAll(`.tvx-more[data-for="${key}"]`).forEach((b) => b.remove());
+    const long = PHONE.matches && items.length > n, cut = long && !opened.has(key);
+    let shown = 0; items.forEach((it) => { const hide = cut && !keep(it) && shown >= n; if (!hide && !keep(it)) shown++; it.classList.toggle('tvx-clip', hide); });
+    if (!long) return;
+    const b = el('button', 'tvx-btn tvx-more', opened.has(key) ? 'Show fewer' : `${label} (${items.length})`); b.type = 'button'; b.dataset.for = key;
+    b.addEventListener('click', () => { opened.has(key) ? opened.delete(key) : opened.add(key); phoneClamp(); });
+    box.after(b);
+  };
+  function phoneClamp() {
+    const grid = $('#weekly .tvx-grid');
+    clamp($('#weekly .tvx-gridbox'), [...grid.querySelectorAll('tbody tr')], 10, 'grid', 'Show all players');
+    // week columns: player, Week 1 and the last three weeks unless "All weeks" is on
+    const wkCut = PHONE.matches && !opened.has('weeks');
+    grid.querySelectorAll('tr').forEach((tr) => { const c = [...tr.children]; c.forEach((td, i) => td.classList.toggle('tvx-clip', wkCut && i > 1 && i < c.length - 3)); });
+    const leg = $('#weekly .tvx-legend'); leg.querySelector('.tvx-wkbtn')?.remove();
+    if (PHONE.matches) { const b = el('button', 'tvx-btn tvx-wkbtn', wkCut ? 'All weeks' : 'Recent weeks'); b.type = 'button'; b.addEventListener('click', () => { opened.has('weeks') ? opened.delete('weeks') : opened.add('weeks'); phoneClamp(); }); leg.append(b); }
+    clamp($('#gainers'), [...root.querySelectorAll('#gainers > li')], 5, 'gain', 'Show all');
+    clamp($('#losers'), [...root.querySelectorAll('#losers > li')], 5, 'lose', 'Show all');
+    clamp($('#waivers .tvx-tablebox') || $('.tvx-wv'), [...root.querySelectorAll('.tvx-wv tbody tr')], 10, 'wv', 'Show all');
+    ['a', 'b'].forEach((s) => {
+      const r = $(`#side-${s} .tvx-roster`), t = $(`#side-${s} .tvx-teams`);
+      if (r) clamp(r, [...r.children], 6, 'roster-' + s, 'Full roster', (li) => !!li.querySelector('input:checked'));
+      if (t) clamp(t, [...t.children], 6, 'teams-' + s, 'All teams');
+    });
+  }
+  PHONE.addEventListener('change', () => phoneClamp());
+  $('#qtabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-q]'); if (!b) return; $('.tvx-qtable').classList.toggle('show-g2', b.dataset.q === '2'); root.querySelectorAll('#qtabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); });
   const segPick = (sel, attr, val) => root.querySelectorAll(sel + ' button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset[attr] === val)));
   $('#tvx-src').addEventListener('click', (e) => { const b = e.target.closest('button[data-src]'); if (!b) return; state.src = b.dataset.src; segPick('#tvx-src', 'src', state.src); render(); });
   searchEl.addEventListener('input', () => { state.q = searchEl.value.trim().toLowerCase(); render(); });
@@ -1538,7 +1585,8 @@ dash.calc('trade_values', {
     const gap = adjA - adjB, base = Math.max(adjA, adjB) || 1;
     return { gotA, gotB, adjA, adjB, gap, gapPct: gap / base, notes };
   }
-  function renderTrade() {
+  function renderTrade() { renderTradeInner(); phoneClamp(); }
+  function renderTradeInner() {
     if (!TV) return;
     const teamsAll = [...new Set([...TV.values()].map((p) => p.owner))].filter((o) => o !== 'Free agent');
     if (!teamsAll.includes(trade.teamA)) trade.teamA = teamsAll[0];
