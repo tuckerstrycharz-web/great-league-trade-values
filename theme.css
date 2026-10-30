@@ -39,3 +39,15 @@ table { border-collapse: collapse; }
 @media (min-width: 700px) { .site { padding: 32px 28px 56px; } }
 .dash-skeleton { color: transparent; border-radius: 4px; background: color-mix(in srgb, var(--color-fg) 8%, transparent); }
 .site-foot { margin-top: var(--cds-gap-lg); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+#pick-team { width: min(26rem, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--color-border-line); border-radius: 12px;
+  background: var(--color-panel); color: var(--color-fg); box-shadow: var(--cds-shadow-popover); }
+#pick-team::backdrop { background: rgba(0, 0, 0, .6); backdrop-filter: blur(2px); }
+#pick-team .pick-in { display: grid; gap: var(--cds-gap-md); padding: 20px; }
+#pick-team h2 { outline: none; font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); }
+#pick-team p { color: var(--color-fg-muted); font-size: var(--cds-font-size-body); }
+#pick-team .pick-list { display: grid; gap: 6px; }
+#pick-team .pick-team { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 11px 14px; text-align: left;
+  font-size: .9375rem; font-weight: 600; background: var(--color-bg); border: 1px solid var(--color-border-line); border-radius: 8px; cursor: pointer; }
+#pick-team .pick-team:hover, #pick-team .pick-team:focus-visible { border-color: var(--cds-chart-categorical-1); outline: none; }
+#pick-team .pick-rec { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 400; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+#pick-team .pick-skip { justify-self: center; background: none; border: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; padding: 4px; }

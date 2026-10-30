@@ -1858,7 +1858,16 @@ dash.calc('trade_values', {
 })();
 </script>
 
-<p class="site-foot">Data updated Oct 30, 2026.</p>
+<p class="site-foot">Data updated Oct 30, 2026. Change your team anytime with "Your team" at the top.</p>
 </main>
+<dialog id="pick-team" aria-labelledby="pick-title">
+  <div class="pick-in">
+    <h2 id="pick-title" tabindex="-1">Which team is yours?</h2>
+    <p>The page shows your roster value, highlights your players and builds trades for your team.</p>
+    <div class="pick-list"></div>
+    <button type="button" class="pick-skip">Just browsing</button>
+  </div>
+</dialog>
+<script src="pick.js"></script>
 </body>
 </html>
