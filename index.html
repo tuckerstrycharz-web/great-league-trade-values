@@ -267,6 +267,9 @@
     .tvx-qtable:not(.show-g2) .tvx-qsec.g2, .tvx-qtable.show-g2 .tvx-qsec:not(.g2) { display: none; }
     .tvx-tb-grid > .tvx-mid { order: -1; }
     .tvx-flip .tvx-kind .lg { display: none; }
+    .tvx .tvx-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cds-gap-sm); }
+    .tvx-controls .tvx-srcpick { min-width: 0; max-width: 100%; } .tvx #tb-src { min-width: 0; max-width: 100%; flex: 1 1 auto; }
+    .tvx-flip .tvx-tile-row .tvx-photo { width: 28px; height: 28px; }
   }
   .tvx-qsec .h { font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); }
   .tvx-qsec .r { display: flex; justify-content: space-between; align-items: baseline; gap: var(--cds-gap-md); padding: 6px var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); }
