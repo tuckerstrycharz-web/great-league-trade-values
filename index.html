@@ -1,0 +1,1813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Great League: Stock Exchange</title>
+<meta name="description" content="Rest-of-season trade values for The Great League: 12-team, full PPR, 1QB.">
+<link rel="stylesheet" href="theme.css">
+<script src="d3.min.js"></script>
+<script src="data.js"></script>
+<script src="dash.js"></script>
+</head>
+<body>
+<main class="site" id="dash-root">
+<style>
+  /* Layout: exchange header + source toggle + this-week ticker, quote tiles, trade builder, board (table + quote panel), week-by-week grid, movers, team portfolios, method. */
+  .tvx { --tvx-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --tvx-up: var(--color-ok); --tvx-down: var(--color-bad);
+    --tvx-up-bg: color-mix(in srgb, var(--color-ok) 13%, transparent);
+    --tvx-down-bg: color-mix(in srgb, var(--color-bad) 13%, transparent);
+    --tvx-tint: color-mix(in srgb, var(--color-fg) 6%, transparent);
+    font-family: var(--font-anthropic-sans); color: var(--color-fg);
+    display: grid; gap: var(--cds-gap-lg); }
+  .tvx-head { display: grid; gap: var(--cds-gap-xs); }
+  .tvx-headrow { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); align-items: end; justify-content: space-between; }
+  .tvx-eyebrow { font-family: var(--tvx-mono); font-size: var(--cds-font-size-caption); letter-spacing: .08em; text-transform: uppercase; color: var(--color-fg-muted); }
+  .tvx-title { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .tvx .tvx-take b, .tvx b { font-weight: 600; color: var(--color-fg); }
+  .tvx .up { color: var(--tvx-up); }
+  .tvx .down { color: var(--tvx-down); }
+  .tvx-headctl { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); align-items: center; min-width: 0; }
+  .tvx-teampick { display: flex; gap: var(--cds-gap-sm); align-items: center; font-size: var(--cds-font-size-caption); font-weight: 600; color: var(--color-fg); min-width: 0; }
+  .tvx .tvx-teampick select { font-weight: 600; border: 1.5px solid var(--color-fg); max-width: 16rem; cursor: pointer; }
+  .tvx-srcpick { display: flex; gap: var(--cds-gap-sm); align-items: center; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+
+  .tvx-tape { overflow: hidden; border-block: 1px solid var(--color-border-line); padding-block: var(--cds-pad-xs); display: flex; gap: var(--cds-gap-md); align-items: center; }
+  .tvx-tape-label { flex: none; font-family: var(--tvx-mono); font-size: var(--cds-font-size-caption); letter-spacing: .06em; text-transform: uppercase; color: var(--color-fg-muted); }
+  .tvx-tape-win { overflow: hidden; min-width: 0; flex: 1; mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent); }
+  .tvx-tape-track { display: flex; gap: var(--cds-gap-lg); width: max-content; font-family: var(--tvx-mono); font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tvx-tick { display: inline-flex; gap: .45em; align-items: baseline; }
+  .tvx-tick .sym { font-weight: 600; letter-spacing: .04em; }
+  .tvx-tick .px { color: var(--color-fg-muted); }
+  @media (prefers-reduced-motion: no-preference) {
+    .tvx-tape-track.go { animation: tvx-scroll 120s linear infinite; }
+    .tvx-tape:hover .tvx-tape-track { animation-play-state: paused; }
+    @keyframes tvx-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    .tvx-fade { animation: tvx-in var(--cds-dur-slow) var(--cds-ease-out) both; }
+    @keyframes tvx-in { from { opacity: .4; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  }
+  @media (prefers-reduced-motion: reduce) { .tvx-tape-win { overflow-x: auto; } }
+
+  .tvx-tiles { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr)); }
+  .tvx-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; }
+  .tvx-tile { display: grid; gap: var(--cds-gap-xs); align-content: start; }
+  .tvx-tile[data-key] { cursor: pointer; }
+  .tvx-tile-label { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .tvx-tile-row { display: flex; gap: var(--cds-gap-sm); align-items: center; min-width: 0; }
+  .tvx-big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .tvx-tile-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tvx-flip { perspective: 700px; --k: var(--cds-chart-categorical-1); border-top: 3px solid var(--k); background: color-mix(in srgb, var(--k) 7%, var(--color-panel)); }
+  .tvx-flip[data-span="week"] { --k: var(--cds-chart-categorical-7); }
+  .tvx-flip .tvx-kind { justify-self: start; font-family: var(--tvx-mono); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--color-bg); background: var(--k); border-radius: 4px; padding: 2px 6px; }
+  .tvx-flip-in { display: grid; gap: var(--cds-gap-xs); align-content: start; min-width: 0; transform-origin: 50% 50%; backface-visibility: hidden; transition: transform 110ms ease-out; }
+  .tvx-flip.out .tvx-flip-in { transform: rotateX(-90deg); transition-timing-function: ease-in; }
+  .tvx-flip .tvx-big { font-family: var(--tvx-mono); font-weight: 600; letter-spacing: .02em; }
+  .tvx-flip .tvx-big.up::before { content: "\25B2"; font-size: .55em; vertical-align: .2em; margin-right: .3em; } .tvx-flip .tvx-big.down::before { content: "\25BC"; font-size: .55em; vertical-align: .2em; margin-right: .3em; }
+  .tvx-flip .tvx-tile-who { min-width: 0; display: grid; }
+  .tvx-flip .tvx-tile-who .tvx-tile-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (prefers-reduced-motion: reduce) { .tvx-flip-in { transition: none; } }
+  .tvx-tile-sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+
+  .tvx-photo { flex: none; width: 36px; height: 36px; border-radius: 50%; object-fit: cover; object-position: 50% 15%; background: var(--tvx-tint); border: 1px solid var(--color-border-line); }
+  .tvx-photo.lg { width: 64px; height: 64px; }
+  .tvx-photo.sm { width: 28px; height: 28px; }
+
+  .tvx-sec-title { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+  .tvx-notes { list-style: none; margin: var(--cds-gap-xs) 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); line-height: 1.4; max-width: 96ch; }
+  .tvx-notes li { position: relative; padding-left: 14px; }
+  .tvx-notes li::before { content: ""; position: absolute; left: 3px; top: .62em; width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .6; }
+  .tvx-notes b { color: var(--color-fg); font-weight: 600; }
+  .tvx-take { list-style: none; padding: 0; margin: var(--cds-gap-xs) 0 0; display: flex; flex-wrap: wrap; gap: 6px 22px; color: var(--color-fg-muted); font-size: var(--cds-font-size-body, 15px); }
+  .tvx-take li { white-space: nowrap; }
+  .tvx-take .k { font-size: var(--cds-font-size-caption); text-transform: uppercase; letter-spacing: .04em; margin-right: 6px; }
+  .tvx-mgrid { display: grid; gap: var(--cds-gap-md) var(--cds-gap-lg); grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); margin-top: var(--cds-gap-sm); }
+  .tvx-mgrid h3 { font-size: var(--cds-font-size-body, 15px); font-weight: 600; margin: 0; }
+  .tvx-mgrid .tvx-notes { margin-top: 4px; }
+  .tvx-sec-title + .tvx-notes { margin-top: 6px; }
+  .tvx-notes + .tvx-legend, .tvx-notes + .tvx-controls { margin-top: var(--cds-gap-sm); }
+  .tvx-note { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: var(--cds-gap-xs) 0 0; line-height: 1.45; max-width: 92ch; }
+
+  .tvx-controls { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); align-items: center; margin-block: var(--cds-gap-md); }
+  .tvx input, .tvx select { font: inherit; font-size: var(--cds-font-size-body); color: var(--color-fg); background: var(--color-bg); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-xs) var(--cds-pad-sm); min-width: 0; }
+  .tvx-controls input[type=search] { flex: 1 1 12rem; }
+  .tvx-seg { display: inline-flex; border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); overflow: hidden; flex: none; }
+  .tvx-seg button { font: inherit; font-size: var(--cds-font-size-caption); font-family: var(--tvx-mono); letter-spacing: .04em; padding: var(--cds-pad-xs) var(--cds-pad-sm); border: 0; background: transparent; color: var(--color-fg-muted); cursor: pointer; }
+  .tvx-seg button + button { border-left: 1px solid var(--color-border-line); }
+  .tvx-seg button[aria-pressed="true"] { background: var(--color-fg); color: var(--color-bg); }
+  .tvx :focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+  .tvx-count { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-left: auto; }
+  .tvx-btn { font: inherit; font-size: var(--cds-font-size-caption); border: 1px solid var(--color-border-line); background: var(--color-bg); color: var(--color-fg); border-radius: var(--cds-radius); padding: var(--cds-pad-xs) var(--cds-pad-sm); cursor: pointer; }
+
+  /* Trade builder */
+  .tvx-tb-grid { display: grid; gap: var(--cds-gap-md); grid-template-columns: minmax(0, 1fr); margin-top: var(--cds-gap-md); }
+  @media (min-width: 980px) { .tvx-tb-grid > .tvx-side { display: flex; flex-direction: column; }
+    .tvx-tb-grid .tvx-roster, .tvx-tb-grid .tvx-teams { flex: 1 1 0; min-height: 16rem; max-height: none; contain: size; align-content: start; } }
+  .tvx-teams { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; align-content: start; overflow: auto; max-height: 420px; }
+  @media (max-width: 979px) { .tvx .tvx-roster, .tvx .tvx-teams { max-height: none; } }
+  .tvx-teams button { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: var(--cds-gap-sm); font: inherit; color: inherit; background: none; border: 0; border-radius: 6px; padding: 7px var(--cds-pad-sm); cursor: pointer; text-align: left; }
+  .tvx-teams button:hover { background: var(--color-bg); }
+  .tvx-teams .v { font-family: var(--tvx-mono); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  @media (min-width: 980px) { .tvx-tb-grid { grid-template-columns: minmax(0, 1fr) minmax(22rem, 1.2fr) minmax(0, 1fr); align-items: stretch; } }
+  .tvx-side { border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-md); display: grid; gap: var(--cds-gap-sm); min-width: 0; align-content: start; }
+  .tvx-side-head { display: flex; gap: var(--cds-gap-sm); align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .tvx-side-head select { flex: 1 1 10rem; }
+  .tvx-side-title { font-weight: 600; }
+  .tvx-roster { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; max-height: 420px; overflow: auto; }
+  .tvx-roster li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: var(--cds-gap-sm); align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .tvx-roster li:hover { background: var(--tvx-tint); }
+  .tvx-roster li.on { background: color-mix(in srgb, var(--color-fg) 11%, transparent); }
+  .tvx-roster input { margin: 0; }
+  .tvx-roster .nm, .tvx-sugg .nm, .tvx-chips .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tvx-roster .nm small { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); margin-left: 4px; }
+  .tvx-roster .v, .tvx-sugg .v, .tvx-chips .v { font-family: var(--tvx-mono); font-size: var(--cds-font-size-caption); }
+  .tvx-roster .v.zero { color: var(--color-fg-muted); }
+  .tvx-find { position: relative; }
+  .tvx-find input { width: 100%; box-sizing: border-box; }
+  .tvx-sugg { list-style: none; margin: 4px 0 0; padding: 4px; position: absolute; left: 0; right: 0; z-index: 3; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); max-height: 260px; overflow: auto; }
+  .tvx-sugg li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--cds-gap-sm); align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+  .tvx-sugg li:hover { background: var(--tvx-tint); }
+  .tvx-chips { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .tvx-chips li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--cds-gap-sm); align-items: center; padding: 4px 6px; border: 1px solid var(--color-border-line); border-radius: 8px; font-variant-numeric: tabular-nums; }
+  .tvx-chips button { font: inherit; border: 0; background: none; color: var(--color-fg-muted); cursor: pointer; padding: 0 4px; }
+  .tvx-how { margin-top: var(--cds-gap-xs); font-size: var(--cds-font-size-caption); }
+  .tvx-how > summary { cursor: pointer; color: var(--color-fg-muted); width: max-content; list-style: none; }
+  .tvx-how > summary::-webkit-details-marker { display: none; }
+  .tvx-how > summary::before { content: "+ "; font-family: var(--tvx-mono); }
+  .tvx-how[open] > summary::before { content: "− "; }
+  .tvx-how[open] > summary { margin-bottom: var(--cds-gap-xs); }
+  .tvx-method-d > summary { width: auto; display: flex; align-items: baseline; gap: var(--cds-gap-xs); }
+  .tvx-method-d > summary::before { order: 2; }
+  .tvx-method-d .tvx-sec-title { margin: 0; }
+  .tvx-empty { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); padding: var(--cds-pad-sm) 0; }
+  .tvx-mid { border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-md); display: grid; gap: var(--cds-gap-md); align-content: start; min-width: 0; }
+  .tvx-finds { display: grid; gap: var(--cds-gap-sm); grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--color-border-line); padding-top: var(--cds-gap-md); }
+  .tvx-finds-top { display: flex; align-items: center; justify-content: space-between; gap: var(--cds-gap-sm); flex-wrap: wrap; }
+  .tvx-find-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--cds-gap-sm); }
+  .tvx-find-side { min-width: 0; }
+  .tvx-find-top { display: flex; align-items: center; gap: var(--cds-gap-sm); flex-wrap: wrap; padding-right: 2rem; }
+  .tvx-find-row { min-width: 0; }
+  .tvx-find-row span:not(.v) { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tvx-finds-head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .tvx-finds-head b { color: var(--color-fg); font-weight: 600; }
+  .tvx-find-card { position: relative; border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-sm) var(--cds-pad-md); display: grid; gap: var(--cds-gap-sm); }
+  .tvx-find-card .x { position: absolute; top: 6px; right: 8px; border: 0; background: none; color: var(--color-fg-muted); font-size: 20px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+  .tvx-find-card .x:hover { color: var(--color-fg); background: var(--color-bg); }
+  .tvx-find-team { font-weight: 600; }
+  .tvx-find-side { display: grid; gap: 4px; }
+  .tvx-find-side .lbl { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .tvx-find-row { display: flex; align-items: center; gap: var(--cds-gap-sm); }
+  .tvx-find-row .v { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .tvx-find-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--cds-gap-sm); flex-wrap: wrap; }
+  .tvx-roster li.k { grid-template-columns: auto auto minmax(0, 1fr) auto auto; }
+  .tvx-keep { display: inline-grid; place-items: center; width: 24px; height: 24px; color: var(--color-fg-muted); border: 0; background: none; cursor: pointer; padding: 2px 4px; border-radius: 4px; opacity: .45; }
+  .tvx-keep.on { opacity: 1; color: var(--color-fg); }
+  .tvx-ico { display: inline-block; vertical-align: -2px; }
+  .tvx-keep:hover { opacity: 1; background: var(--color-bg); }
+  .tvx-wv th { padding: var(--cds-pad-sm); }
+  .tvx-wv th:first-child, .tvx-wv td:first-child { text-align: center; width: 2.5em; }
+  .tvx-wv td.l, .tvx-wv th.l { padding-left: var(--cds-pad-md); }
+  .tvx-wv .thin { color: var(--color-fg-muted); }
+  .tvx-wv th:last-child, .tvx-wv td:last-child { padding-left: var(--cds-pad-lg); }
+  @media (max-width: 560px) { .tvx-wv .tvx-photo { display: none; } .tvx-wv th, .tvx-wv td { padding-left: 5px; padding-right: 5px; } }
+  .tvx-result { display: grid; gap: var(--cds-gap-sm); align-content: start; }
+  .tvx-verdict { font-family: var(--font-anthropic-serif); font-size: var(--cds-font-size-title); line-height: 1.15; font-weight: 400; margin: 0; }
+  .tvx-scale { position: relative; height: 12px; border-radius: 6px; background: var(--tvx-tint); overflow: hidden; }
+  .tvx-scale .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--cds-chart-axis); transform: translateX(-1px); }
+  .tvx-scale .fair { position: absolute; left: 45%; width: 10%; top: 0; bottom: 0; background: color-mix(in srgb, var(--color-fg) 8%, transparent); }
+  .tvx-scale .bar { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; }
+  .tvx-bars { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--cds-gap-md); align-items: end; margin-top: var(--cds-gap-sm); }
+  .tvx-bars .col { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .tvx-bars .well { width: min(100%, 5.5rem); height: 140px; display: flex; flex-direction: column; justify-content: flex-end; border-bottom: 2px solid var(--cds-chart-baseline, var(--cds-chart-axis)); }
+  .tvx-bars .seg { width: 100%; }
+  .tvx-bars .seg.base { background: var(--c); border-radius: 0 0 0 0; }
+  .tvx-bars .seg.bonus { background: repeating-linear-gradient(135deg, var(--c) 0 4px, color-mix(in srgb, var(--c) 40%, transparent) 4px 8px); }
+  .tvx-bars .seg:first-child { border-radius: 4px 4px 0 0; }
+  .tvx-bars .tot { font-family: var(--tvx-mono); font-weight: 600; }
+  .tvx-bars .nm { font-size: var(--cds-font-size-caption); font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tvx-bars .sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); text-align: center; }
+  .tvx-bars-key { display: flex; justify-content: center; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .tvx-bars-key .sw { display: inline-block; flex: none; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; border-radius: 2px; background: var(--cds-chart-muted); }
+  .tvx-bars-key .sw.bonus { background: repeating-linear-gradient(135deg, var(--cds-chart-muted) 0 2px, transparent 2px 4px); }
+  .tvx-scale-lab { display: flex; justify-content: space-between; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); gap: var(--cds-gap-sm); }
+  .tvx-ledger { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: var(--cds-font-size-body); }
+  .tvx-ledger td { padding: 4px 0; border-bottom: 1px solid var(--color-border-line); }
+  .tvx-ledger td + td { text-align: right; padding-left: var(--cds-gap-sm); white-space: nowrap; }
+  .tvx-ledger tr.tot td { font-weight: 600; }
+  .tvx-ledger tr.adj td { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+  .tvx-impact { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); line-height: 1.5; display: grid; gap: 4px; }
+
+  .tvx-board { display: grid; gap: var(--cds-gap-md); grid-template-columns: minmax(0, 1fr); }
+  #board-table { container-type: inline-size; display: flex; flex-direction: column; }
+  @media (min-width: 1100px) { .tvx-board { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: stretch; }
+    #board-table .tvx-tablebox { flex: 1 1 0; min-height: 24rem; max-height: none; contain: size; } }
+  @media (max-width: 1099px) { .tvx #board-table .tvx-tablebox, .tvx .tvx-gridbox, .tvx #waivers .tvx-tablebox { max-height: none; } }
+  .tvx-more { margin-top: var(--cds-gap-sm); align-self: flex-start; }
+  @container (max-width: 880px) { #board-grid .c1 { display: none; } }
+  @container (max-width: 700px) { #board-grid .c2 { display: none; } }
+  @container (max-width: 470px) { #board-grid .c3 { display: none; } }
+  @container (max-width: 400px) { #board-grid .c4 { display: none; } }
+  @container (max-width: 400px) { #board-grid .tvx-photo { display: none; } #board-grid .tvx-psub { max-width: 9rem; } #board-grid th button, #board-grid td { padding-left: 6px; padding-right: 6px; } }
+  .tvx-psub { display: block; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 14rem; }
+  #board-grid .tvx-pcell > span:last-of-type { min-width: 0; }
+  .tvx-tablebox { max-height: 640px; overflow: auto; border-top: 1px solid var(--color-border-line); }
+  .tvx-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-body); font-variant-numeric: tabular-nums; }
+  .tvx-table th { position: sticky; top: 0; z-index: 1; background: var(--color-panel); text-align: right; font-weight: var(--cds-font-weight-medium); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); border-bottom: 1px solid var(--color-border-line); padding: 0; white-space: nowrap; }
+  .tvx-table th button { font: inherit; color: inherit; background: none; border: 0; padding: var(--cds-pad-sm); cursor: pointer; width: 100%; text-align: inherit; }
+  .tvx-table th button:disabled { cursor: default; }
+  .tvx-table th[aria-sort="ascending"] button::after { content: " \2191"; }
+  .tvx-table th[aria-sort="descending"] button::after { content: " \2193"; }
+  .tvx-table .grp { border-left: 1px solid var(--color-border-line); }
+  .tvx-table th.l, .tvx-table td.l { text-align: left; }
+  .tvx-table td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); text-align: right; white-space: nowrap; }
+  .tvx-table tbody tr { cursor: pointer; }
+  .tvx-table tbody tr:hover { background: var(--tvx-tint); }
+  .tvx-table tbody tr.sel { background: color-mix(in srgb, var(--color-fg) 11%, transparent); }
+  .tvx-table tbody tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--color-fg); }
+  .tvx-pcell { display: flex; align-items: center; gap: var(--cds-gap-sm); }
+  .tvx-pname { font-weight: 600; }
+  tr.is-new .tvx-pcell::after, tr.is-off .tvx-pcell::after { font-family: var(--tvx-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--color-border-line); font-weight: 400; }
+  tr.is-new .tvx-pcell::after { content: "New"; color: var(--color-fg-muted); }
+  tr.is-off .tvx-pcell::after { content: "Off chart"; color: var(--tvx-down); }
+  .tvx-below::before { content: "off"; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+  .tvx-pill { display: inline-block; min-width: 4.6em; padding: 2px 6px; border-radius: 6px; font-weight: 600; font-family: var(--tvx-mono); font-size: var(--cds-font-size-caption); text-align: right; }
+  .tvx-pill.up { background: var(--tvx-up-bg); }
+  .tvx-pill.down { background: var(--tvx-down-bg); }
+  .tvx-pill.up::before { content: "\25B2 "; font-size: .8em; }
+  .tvx-pill.down::before { content: "\25BC "; font-size: .8em; }
+  .tvx-rk.up::before { content: "\25B2"; font-size: .7em; margin-right: 2px; }
+  .tvx-rk.down::before { content: "\25BC"; font-size: .7em; margin-right: 2px; }
+  .tvx-muted { color: var(--color-fg-muted); }
+  .tvx-spark { display: block; margin-left: auto; }
+  @media (max-width: 860px) { .tvx-table .opt { display: none; } }
+  @media (max-width: 480px) { .tvx-table .opt2 { display: none; } }
+
+  .tvx-quote-top { display: flex; gap: var(--cds-gap-md); align-items: center; }
+  .tvx-quote-name { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); line-height: 1.1; margin: 0; }
+  .tvx-quote-meta { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-family: var(--tvx-mono); letter-spacing: .03em; }
+  .tvx-quote-px { display: flex; gap: var(--cds-gap-sm); align-items: baseline; flex-wrap: wrap; margin-top: var(--cds-gap-md); }
+  .tvx-chart { position: relative; min-height: 220px; margin-top: var(--cds-gap-sm); }
+  .tvx-chart-title { font-size: var(--cds-font-size-body); font-weight: 600; margin: 0; }
+  .tvx-qcharts { display: grid; gap: var(--cds-gap-md) var(--cds-gap-lg); grid-template-columns: minmax(0, 1fr); margin-top: var(--cds-gap-md); padding-top: var(--cds-gap-md); border-top: 1px solid var(--color-border-line); }
+  .tvx-qchart { min-width: 0; display: flex; flex-direction: column; }
+  .tvx-qchart + .tvx-qchart { padding-top: var(--cds-gap-md); border-top: 1px solid var(--color-border-line); }
+  .tvx-quote { container-type: inline-size; }
+  .tvx-qtable { display: grid; grid-template-columns: minmax(0, 1fr); margin-top: var(--cds-gap-md); font-variant-numeric: tabular-nums; }
+  .tvx-qsec { min-width: 0; }
+  .tvx-qsec .h { font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); }
+  .tvx-qsec .r { display: flex; justify-content: space-between; align-items: baseline; gap: var(--cds-gap-md); padding: 6px var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); }
+  .tvx-qsec .k { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .tvx-qsec .v { font-weight: 600; white-space: nowrap; text-align: right; }
+  .tvx-qsec .v.up { color: var(--color-ok); } .tvx-qsec .v.down { color: var(--color-bad); }
+  @container (width >= 32rem) { .tvx-qtable { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .tvx-qsec.g2 { border-left: 1px solid var(--color-border-line); } }
+  @container (width < 32rem) { .tvx-qsec.g2 { margin-top: var(--cds-gap-md); } }
+  .tvx-chart svg { display: block; overflow: visible; }
+  .tvx-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; white-space: nowrap; z-index: 2; display: grid; gap: 1px; }
+  .tvx-tip .d { color: var(--cds-text-secondary); }
+  .tvx-tip .row { display: flex; gap: var(--cds-gap-sm); justify-content: space-between; }
+  .tvx-tip .row.me { font-weight: 600; }
+  .tvx-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--cds-gap-sm) var(--cds-gap-md); margin: var(--cds-gap-md) 0 0; }
+  .tvx-stats dt { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .tvx-stats dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .tvx-grid { width: 100%; border-collapse: separate; border-spacing: 2px; font-variant-numeric: tabular-nums; font-size: var(--cds-font-size-caption); }
+  .tvx-grid th { font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: var(--cds-pad-xs); position: sticky; top: 0; background: var(--color-panel); z-index: 1; text-align: center; white-space: nowrap; }
+  .tvx-grid th.l, .tvx-grid td.l { text-align: left; }
+  .tvx-grid td { text-align: center; padding: 4px 6px; border-radius: 4px; min-width: 2.8em; font-family: var(--tvx-mono); }
+  .tvx-grid td.l { font-family: var(--font-anthropic-sans); white-space: nowrap; font-weight: 600; padding-right: var(--cds-pad-sm); }
+  .tvx-grid tbody tr { cursor: pointer; }
+  .tvx-grid td.tvx-bye, .tvx-mk-bye { color: var(--color-warn); font-weight: 700; }
+  .tvx-grid td.tvx-out, .tvx-mk-out { color: var(--color-bad); font-weight: 700; }
+  .tvx-grid td.tvx-proj { font-style: italic; outline: 1px dashed var(--color-border-line); outline-offset: -2px; }
+  .tvx-stats dd.up { color: var(--color-ok); } .tvx-stats dd.down { color: var(--color-bad); }
+  .tvx-grid tbody tr.sel td.l { text-decoration: underline; text-underline-offset: 3px; }
+  .tvx-grid td.l, .tvx-grid th.l { position: sticky; left: 0; background: var(--color-panel); z-index: 1; }
+  .tvx-grid th.l { z-index: 2; }
+  .tvx-gridbox { max-height: 520px; overflow: auto; margin-top: var(--cds-gap-md); }
+  .tvx-legend { display: flex; gap: var(--cds-gap-md); flex-wrap: wrap; align-items: center; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-top: var(--cds-gap-sm); }
+  .tvx-legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -3px; margin-right: 4px; }
+
+  .tvx-two { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+  .tvx-movers { list-style: none; margin: var(--cds-gap-md) 0 0; padding: 0; display: grid; gap: 2px; }
+  .tvx-movers li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--cds-gap-sm); align-items: center; padding: var(--cds-pad-xs) 0; border-bottom: 1px solid var(--color-border-line); cursor: pointer; font-variant-numeric: tabular-nums; }
+  .tvx-movers li:last-child { border-bottom: 0; }
+  .tvx-movers .who { min-width: 0; }
+  .tvx-movers .who div:first-child { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tvx-movers .who div:last-child { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .tvx-pchart { position: relative; min-height: 300px; margin-top: var(--cds-gap-md); }
+  .tvx-port { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin-top: var(--cds-gap-md); }
+  .tvx-port th { text-align: right; font-weight: var(--cds-font-weight-medium); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+  .tvx-port td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); text-align: right; white-space: nowrap; }
+  .tvx-port .l { text-align: left; }
+  .tvx-port tr.mine td { font-weight: 600; background: var(--tvx-tint); }
+  @media (max-width: 560px) { .tvx-port .opt { display: none; } .tvx-port th, .tvx-port td { padding: var(--cds-pad-xs) 5px; } }
+  @media (max-width: 400px) { .tvx-port .wk { display: none; } }
+  .tvx-method .tvx-off-line { margin: var(--cds-gap-md) 0 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+  [data-dash-source-state=empty] { color: transparent; }
+  .tvx-fail { display: flex; align-items: center; justify-content: center; gap: .5em; min-height: 120px; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+  .tvx-fail::before { content: ""; width: .375rem; height: .375rem; border-radius: 50%; background: var(--color-bad); }
+</style>
+
+<div class="tvx">
+  <header class="tvx-head" id="top">
+    <div class="tvx-eyebrow">The Great League · rest-of-season trade values · 12-team full PPR · 1QB</div>
+    <div class="tvx-headrow">
+      <h1 class="tvx-title">Trade Value Exchange</h1>
+      <div class="tvx-headctl">
+      <label class="tvx-teampick">Your team <select id="tvx-me" aria-label="Your team"></select></label>
+      <div class="tvx-srcpick">View
+        <div class="tvx-seg" id="tvx-src" role="group" aria-label="Weekly value source">
+          <button type="button" data-src="consensus" aria-pressed="true">CONSENSUS</button>
+          <button type="button" data-src="espn" aria-pressed="false">ESPN PTS</button>
+          <button type="button" data-src="cbs" aria-pressed="false">CBS</button>
+        </div>
+      </div>
+      </div>
+    </div>
+    <ul class="tvx-take">
+      <li><span class="k">Span</span><b><span class="dash-skeleton" data-source="headline" data-field="first_label">—</span></b> → <b><span class="dash-skeleton" data-source="headline" data-field="last_label">—</span></b></li>
+      <li><span class="k">Top gainer</span><b><span data-source="headline" data-field="gainer">—</span></b> <span class="up" data-source="headline" data-field="gainer_chg">—</span></li>
+      <li><span class="k">Top loser</span><b><span data-source="headline" data-field="loser">—</span></b> <span class="down" data-source="headline" data-field="loser_chg">—</span></li>
+      <li><span class="k">Drop this week</span><b><span data-source="headline" data-field="week_loser">—</span></b> <span class="down" data-source="headline" data-field="week_loser_chg">—</span></li>
+      <li><span class="k">Your roster</span><b><span data-source="headline" data-field="my_now">—</span></b> <span class="tvx-my-pct" data-source="headline" data-field="my_pct">—</span> since Wk 1</li>
+    </ul>
+  </header>
+
+  <div class="tvx-tape" id="ticker">
+    <span class="tvx-tape-label" data-source="headline" data-field="week_label">—</span>
+    <div class="tvx-tape-win" data-source="board"><div class="tvx-tape-track"></div></div>
+  </div>
+
+  <section class="tvx-tiles" id="quotes">
+    <div class="tvx-card tvx-tile tvx-flip" data-span="season"><div class="tvx-flip-in"><div class="tvx-kind">Season · since Wk 1</div><div class="tvx-big">—</div></div></div>
+    <div class="tvx-card tvx-tile tvx-flip" data-span="season"><div class="tvx-flip-in"><div class="tvx-kind">Season · since Wk 1</div><div class="tvx-big">—</div></div></div>
+    <div class="tvx-card tvx-tile tvx-flip" data-span="week"><div class="tvx-flip-in"><div class="tvx-kind">This week</div><div class="tvx-big">—</div></div></div>
+    <div class="tvx-card tvx-tile tvx-flip" data-span="week"><div class="tvx-flip-in"><div class="tvx-kind">This week</div><div class="tvx-big">—</div></div></div>
+  </section>
+
+  <section class="tvx-board" id="board">
+    <div class="tvx-card" id="board-table">
+      <h2 class="tvx-sec-title">Player board</h2>
+      <ul class="tvx-notes tvx-src-note"></ul>
+      <div class="tvx-controls">
+        <input id="tvx-search" type="search" placeholder="Search players or teams" aria-label="Search players">
+        <div class="tvx-seg" id="tvx-pos" role="group" aria-label="Position">
+          <button type="button" data-pos="" aria-pressed="true">ALL</button><button type="button" data-pos="QB" aria-pressed="false">QB</button><button type="button" data-pos="RB" aria-pressed="false">RB</button><button type="button" data-pos="WR" aria-pressed="false">WR</button><button type="button" data-pos="TE" aria-pressed="false">TE</button>
+        </div>
+        <select id="tvx-owner" aria-label="Fantasy team"></select>
+        <span class="tvx-count" aria-live="polite"></span>
+      </div>
+      <div class="tvx-tablebox">
+        <table class="tvx-table" id="board-grid" data-source="board" data-row-key="player_id">
+          <thead><tr>
+            <th class="l" data-field="name" data-sort="name"><button type="button">Player</button></th>
+            <th class="grp c4" data-field="consensus" data-sort="consensus"><button type="button">Value /100</button></th>
+            <th class="c2" data-field="espn_ros_pts" data-sort="espn_ros_pts"><button type="button">ESPN ROS</button></th>
+            <th class="c2 grp" data-k="start" data-sort="start"><button type="button">Wk 1</button></th>
+            <th data-k="now" data-sort="now"><button type="button">Now</button></th>
+            <th data-k="chg" data-sort="chg" aria-sort="descending"><button type="button">Change</button></th>
+            <th class="c3" data-k="chg_pct" data-sort="chg_pct"><button type="button">Since Wk 1</button></th>
+            <th class="c2" data-k="week_pct" data-sort="week_pct"><button type="button">This week</button></th>
+            <th class="c1" data-k="rank_move" data-sort="rank_move"><button type="button">Rank move</button></th>
+            <th class="c1"><button type="button" disabled>Wk 1–now</button></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <button type="button" class="tvx-btn tvx-more" id="board-more" hidden></button>
+    </div>
+
+    <aside class="tvx-card tvx-quote" id="quote" aria-live="polite">
+      <div class="tvx-quote-top">
+        <img class="tvx-photo lg" alt="" hidden>
+        <div style="min-width:0">
+          <h2 class="tvx-quote-name" data-source="board" data-field="name">—</h2>
+          <div class="tvx-quote-meta"></div>
+        </div>
+      </div>
+      <div class="tvx-quote-px">
+        <span class="tvx-big" data-source="board" data-k="now">—</span>
+        <span class="tvx-pill tvx-q-chg" data-source="board" data-k="chg_pct">—</span>
+        <span class="tvx-tile-sub">since Week 1</span>
+      </div>
+      <div class="tvx-qcharts">
+        <div class="tvx-qchart">
+          <h3 class="tvx-chart-title">Trade value by week · <span class="tvx-vsrc-name">Consensus</span></h3>
+          <div class="tvx-chart" id="quote-chart" data-source="series"></div>
+          <ul class="tvx-notes"><li>Hollow dot = off that week's chart · hover for details</li></ul>
+        </div>
+        <div class="tvx-qchart">
+          <h3 class="tvx-chart-title">ESPN points: projected vs scored</h3>
+          <div class="tvx-chart" id="quote-pts" data-source="espn_weekly"></div>
+          <ul class="tvx-notes">
+            <li><b>Line:</b> ESPN's projection each week · <b>dots:</b> points scored, green above it, red below</li>
+            <li><b>Shaded:</b> not played yet · <b><span class="tvx-mk-bye">B</span></b> bye · <b><span class="tvx-mk-out">✕</span></b> didn't play</li>
+          </ul>
+        </div>
+      </div>
+      <div class="tvx-qtable">
+        <div class="tvx-qsec">
+          <div class="h">Trade value</div>
+            <div class="r"><span class="k">Week 1</span><span class="v" data-source="board" data-k="start">—</span></div>
+            <div class="r"><span class="k">This week</span><span class="v" data-source="board" data-k="week_pct">—</span></div>
+            <div class="r"><span class="k">Season high</span><span class="v" data-source="board" data-k="high">—</span></div>
+            <div class="r"><span class="k">Season low</span><span class="v" data-source="board" data-k="low">—</span></div>
+            <div class="r"><span class="k">Position rank now</span><span class="v" data-source="board" data-k="rank">—</span></div>
+            <div class="r"><span class="k">Position rank Week 1</span><span class="v" data-source="board" data-k="rank0">—</span></div>
+            <div class="r"><span class="k">Value /100 (consensus)</span><span class="v" data-source="board" data-field="consensus">—</span></div>
+            <div class="r"><span class="k">ESPN value /100</span><span class="v" data-source="board" data-field="espn_value">—</span></div>
+            <div class="r"><span class="k">FantasyCalc value /100</span><span class="v" data-source="board" data-field="fc_value">—</span></div>
+            <div class="r"><span class="k">Fantasy team</span><span class="v" data-source="board" data-field="owner">—</span></div>
+        </div>
+        <div class="tvx-qsec g2">
+          <div class="h">ESPN points</div>
+            <div class="r"><span class="k">Points scored</span><span class="v" data-source="espn_player" data-field="actual_total">—</span></div>
+            <div class="r"><span class="k">ESPN expected, same games</span><span class="v" data-source="espn_player" data-field="expected_total">—</span></div>
+            <div class="r"><span class="k">Over / under expected</span><span class="v" data-source="espn_player" data-field="diff">—</span></div>
+            <div class="r"><span class="k">Over / under, %</span><span class="v" data-source="espn_player" data-field="diff_pct">—</span></div>
+            <div class="r"><span class="k">Scored per game</span><span class="v" data-source="espn_player" data-field="actual_ppg">—</span></div>
+            <div class="r"><span class="k">Expected per game</span><span class="v" data-source="espn_player" data-field="expected_ppg">—</span></div>
+            <div class="r"><span class="k">Rest of season, expected</span><span class="v" data-source="espn_player" data-field="ros_total">—</span></div>
+            <div class="r"><span class="k">Rest of season, per game</span><span class="v" data-source="espn_player" data-field="ros_ppg">—</span></div>
+            <div class="r"><span class="k">ESPN position rank</span><span class="v" data-source="board" data-field="espn_pos_rank">—</span></div>
+            <div class="r"><span class="k">Games left</span><span class="v" data-source="espn_player" data-field="games_left">—</span></div>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="tvx-card" id="points" hidden>
+    <h2 class="tvx-sec-title">Points by week: scored vs ESPN expected</h2>
+    <ul class="tvx-notes">
+      <li><b>Played weeks:</b> points scored · <b>later weeks</b> (italic): ESPN's projection</li>
+      <li><b>Green / red:</b> beat or fell short of ESPN's projection that week</li>
+      <li><b><span class="tvx-mk-bye">B</span></b> bye · <b><span class="tvx-mk-out">✕</span></b> didn't play (or projected out)</li>
+      <li>Follows the board's filters and sort</li>
+    </ul>
+    <div class="tvx-legend"><span><i style="background:var(--tvx-up-bg);outline:1px solid var(--tvx-up)"></i>Beat expected</span><span><i style="background:var(--tvx-down-bg);outline:1px solid var(--tvx-down)"></i>Fell short</span><span><i style="outline:1px dashed var(--color-fg-muted)"></i>ESPN projection (not played yet)</span></div>
+    <div class="tvx-gridbox">
+      <table class="tvx-grid tvx-pgrid" data-source="espn_grid" data-row-key="player_id"><thead></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <section class="tvx-card" id="trade" data-source="trade_values">
+    <h2 class="tvx-sec-title">Trade builder</h2>
+    <details class="tvx-how"><summary>How it works</summary><ul class="tvx-notes">
+      <li><b>Build:</b> pick a team on each side and check what each sends, or switch to Any players</li>
+      <li><b>Even trades:</b> two at a time, across every team (All teams) or the one you pick</li>
+      <li>Each says who wins by trade value · <b>fair</b> = within 5%</li>
+      <li><b>×</b> swaps in the next trade · <b>Load</b> puts it in the builder · <b>Refresh</b> shows the next two</li>
+      <li>Check your players, then Refresh, to build around them</li>
+      <li><b><svg class="tvx-ico" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3" y="7" width="10" height="7.5" rx="1.6" fill="currentColor"/><path d="M5.2 7V5.2a2.8 2.8 0 0 1 5.6 0V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> = never trade</b><span class="tvx-apart-note"> · Nacua and Collins never go in the same deal</span></li>
+      <li><b>Best-player bonus:</b> the side getting the deal's best player adds the gap to the best player it sends</li>
+    </ul></details>
+    <div class="tvx-controls">
+      <div class="tvx-seg" id="tb-mode" role="group" aria-label="Trade mode">
+        <button type="button" data-mode="teams" aria-pressed="true">TEAM VS TEAM</button><button type="button" data-mode="any" aria-pressed="false">ANY PLAYERS</button>
+      </div>
+      <label class="tvx-srcpick" for="tb-src">Values
+        <select id="tb-src"><option value="consensus">Consensus out of 100</option><option value="rsj">RSJ chart</option><option value="fc">FantasyCalc trades</option><option value="espn">ESPN projections (league scoring)</option></select>
+      </label>
+      <button type="button" class="tvx-btn" id="tb-clear">Clear trade</button>
+    </div>
+    <div class="tvx-tb-grid">
+      <div class="tvx-side" id="side-a"></div>
+      <div class="tvx-mid">
+        <div class="tvx-result" id="tb-result"></div>
+        <div class="tvx-finds" id="tb-finds" hidden></div>
+      </div>
+      <div class="tvx-side" id="side-b"></div>
+    </div>
+  </section>
+
+  <section class="tvx-card" id="weekly">
+    <h2 class="tvx-sec-title">Week by week</h2>
+    <ul class="tvx-notes">
+      <li>Each player's value at every weekly chart</li>
+      <li>Color = move from the week before · follows the board's filters and sort</li>
+    </ul>
+    <div class="tvx-legend"><span><i style="background:var(--tvx-up-bg);outline:1px solid var(--tvx-up)"></i>Up from last week</span><span><i style="background:var(--tvx-down-bg);outline:1px solid var(--tvx-down)"></i>Down from last week</span><span><span class="tvx-below"></span> = not on that week's chart</span></div>
+    <div class="tvx-gridbox">
+      <table class="tvx-grid" data-source="weekly" data-row-key="key"><thead></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <section class="tvx-two" id="movers">
+    <div class="tvx-card">
+      <h2 class="tvx-sec-title">Biggest gains since Week 1</h2>
+      <ul class="tvx-notes">
+        <li>Players on both the Week 1 and current charts · board filters apply</li>
+      </ul>
+      <ol class="tvx-movers" id="gainers" data-source="board"></ol>
+    </div>
+    <div class="tvx-card">
+      <h2 class="tvx-sec-title">Biggest losses since Week 1</h2>
+      <ul class="tvx-notes">
+        <li>Players on both the Week 1 and current charts · board filters apply</li>
+      </ul>
+      <ol class="tvx-movers" id="losers" data-source="board"></ol>
+    </div>
+  </section>
+
+  <section class="tvx-card" id="portfolios">
+    <h2 class="tvx-sec-title">Team portfolios by week</h2>
+    <ul class="tvx-notes">
+      <li>Today's rosters valued at every weekly chart (off chart = 0)</li>
+      <li>Each team counts its best 14 QB/RB/WR/TE (16 spots minus K and D/ST), so IR stashes don't add value</li>
+      <li>Shows how current rosters gained or lost value, not trades made along the way</li>
+    </ul>
+    <div class="tvx-pchart" id="portfolio-chart" data-source="portfolio_weeks"></div>
+    <div style="overflow-x:auto">
+      <table class="tvx-port" data-source="portfolios" data-row-key="key">
+        <thead><tr><th class="l" data-field="owner">Team</th><th class="opt" data-field="record">Record</th><th class="opt" data-field="start_total">Week 1</th><th data-field="now_total">Now</th><th data-field="change_pct">Since Wk 1</th><th class="wk" data-field="week_pct">This week</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+
+  <section class="tvx-card" id="waivers">
+    <h2 class="tvx-sec-title">Waiver wire: top 30 by consensus value</h2>
+    <ul class="tvx-notes">
+      <li><b>Who's checked:</b> ESPN's top free agents per position + free agents CBS, RSJ or FantasyCalc value (not every NFL player)</li>
+      <li><b>Status</b> is from ESPN · <b>Upgrade</b> = his value minus your lowest-valued player at his position</li>
+      <li><b>Sources:</b> 1 = less certain</li>
+    </ul>
+    <div class="tvx-controls">
+      <div class="tvx-seg" id="wv-pos" role="group" aria-label="Waiver position">
+        <button type="button" data-pos="" aria-pressed="true">ALL</button><button type="button" data-pos="QB" aria-pressed="false">QB</button><button type="button" data-pos="RB" aria-pressed="false">RB</button><button type="button" data-pos="WR" aria-pressed="false">WR</button><button type="button" data-pos="TE" aria-pressed="false">TE</button>
+      </div>
+      <label class="tvx-srcpick"><input type="checkbox" id="wv-up"> Upgrades only</label>
+    </div>
+    <div class="tvx-tablebox">
+      <table class="tvx-table tvx-wv" data-source="waivers" data-row-key="player_id">
+        <thead><tr>
+          <th data-field="rank">#</th><th class="l" data-field="name">Player</th><th class="l" data-field="pos">Pos</th><th class="l opt" data-field="team">NFL</th>
+          <th class="l opt" data-field="status">Status</th><th data-field="value">Value</th><th class="opt" data-field="week_chg">Last week</th>
+          <th class="opt" data-field="n_sources">Sources</th><th class="opt" data-field="ros_ppg">ESPN ROS ppg</th><th data-field="upgrade">Upgrade</th><th class="l opt2" data-field="my_worst">Your lowest at pos</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="tvx-card tvx-method" id="method">
+    <details class="tvx-how tvx-method-d"><summary><h2 class="tvx-sec-title">How the numbers work</h2></summary>
+    <div class="tvx-mgrid">
+      <div>
+        <h3>Format</h3>
+        <ul class="tvx-notes">
+          <li>Everything is for this league: 12 teams, full PPR, 1QB</li>
+          <li>Charts that don't match are left out (FantasyPros: scoring unstated; Underdog: no redraft values)</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Consensus value (default)</h3>
+        <ul class="tvx-notes">
+          <li>Each source ranks players: CBS, RSJ, FantasyCalc, ESPN points above replacement</li>
+          <li>Each rank is read off one shared curve (average of the four, #1 = 100), then averaged</li>
+          <li>Ranking first stops one source's steep or flat scale from dominating</li>
+          <li>Sources agree closely: rank correlation 0.88–0.94 on the top 150</li>
+          <li>Earlier weeks move by the average change of sources covering that week</li>
+          <li>Weeks 1–4 use CBS + ESPN only; RSJ and FantasyCalc enter from Week 4</li>
+        </ul>
+      </div>
+      <div>
+        <h3>CBS (weekly history)</h3>
+        <ul class="tvx-notes">
+          <li>Dave Richard's full-PPR column; QBs on the 1QB 4-pt TD scale</li>
+          <li>Every week since Week 1 (Sep 7) on a steady scale, ~125 players</li>
+          <li>Off chart = worth 4 or less · not used alone in the trade builder (no league size stated)</li>
+        </ul>
+      </div>
+      <div>
+        <h3>RSJ and FantasyCalc</h3>
+        <ul class="tvx-notes">
+          <li>RSJ: built for 12-team, full-PPR, 1QB; only Week 4 (Sep 29) and Week 8 saved</li>
+          <li>RSJ Week 4 restated to the Week 8 scale by overall rank</li>
+          <li>FantasyCalc: real redraft trades in 12-team PPR 1QB leagues; board shows its 30-day change</li>
+        </ul>
+      </div>
+      <div>
+        <h3>ESPN</h3>
+        <ul class="tvx-notes">
+          <li>Rest-of-season projections in this league's own scoring</li>
+          <li>Value = projected points minus a replacement line at his position</li>
+          <li>Replacement = halfway between the last starter and the waiver line · at or below it = 0</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Trade builder</h3>
+        <ul class="tvx-notes">
+          <li>All values out of 100 (each source's #1 = 100)</li>
+          <li>Each side's total = value received + best-player bonus (WalterPicks rule)</li>
+          <li>Rule fit to four WalterPicks results from this league (e.g. CMC for Nacua: +3.3)</li>
+          <li>Fair = within 5%</li>
+        </ul>
+      </div>
+    </div>
+    </details>
+    <p class="tvx-off-line" data-source="board">On the Week 1 chart but off it now: <span class="tvx-off"></span>.</p>
+  </section>
+</div>
+
+<script>
+// A team's value = its best 14 skill players (16 roster spots minus K and D/ST), so IR stashes and extra players don't count.
+const ROSTER_COUNT = 14;
+const rosterValue = (vals) => vals.filter((v) => v > 0).sort((a, b) => b - a).slice(0, ROSTER_COUNT).reduce((s, v) => s + v, 0);
+dash.calc('rsj_restated', {
+  title: 'RSJ values on the Week 8 scale',
+  description: 'Each saved RSJ value, plus the value the latest RSJ chart gives to the overall rank the player held that week.',
+  inputs: ['rsj_history'],
+  fn: (rsj_history) => {
+    const latest = Math.max(...rsj_history.map((r) => Number(r.week)));
+    const curve = rsj_history.filter((r) => Number(r.week) === latest).map((r) => Number(r.value)).sort((a, b) => b - a);
+    return rsj_history.map((r) => ({
+      player_id: r.player_id, week: Number(r.week), value: Number(r.value), ovr_rank: Number(r.ovr_rank),
+      restated: curve[Math.min(Number(r.ovr_rank), curve.length) - 1],
+    }));
+  },
+});
+
+dash.calc('consensus', {
+  title: 'Consensus trade value',
+  description: 'One value out of 100 per player and week. Each source (CBS, RSJ, FantasyCalc, ESPN projected points above replacement) is ranked, each rank is read off one shared value curve (the average of the four sources’ curves, #1 = 100), and the readings are averaged. Earlier weeks move by the average weekly change of the sources that cover that week.',
+  inputs: ['cbs_history', 'rsj_history', 'fc_trend', 'espn_weekly', 'players', 'waiver_pool'],
+  fn: (cbs_history, rsj_history, fc_trend, espn_weekly, players, waiver_pool) => {
+    function consensusFn(cbs_history, rsj_history, fc_trend, espn_weekly, players) {
+  const WEEKS = [...new Set(cbs_history.map((r) => Number(r.week)))].sort((a, b) => a - b);
+  const NOW = WEEKS[WEEKS.length - 1], FC_THEN = 4; // FantasyCalc's 30-day change reaches back to about Week 4
+  const pos = new Map(players.map((p) => [p.player_id, p.pos]));
+  const rostered = players.filter((p) => p.owner && p.owner !== 'Free agent');
+
+  // Snapshots: source -> week -> Map(player_id -> raw value, higher = better)
+  const snap = { cbs: {}, rsj: {}, fc: {}, espn: {} };
+  for (const r of cbs_history) (snap.cbs[r.week] ??= new Map()).set(r.player_id, Number(r.value));
+  for (const r of rsj_history) (snap.rsj[r.week] ??= new Map()).set(r.player_id, Number(r.value));
+  snap.fc[NOW] = new Map(); snap.fc[FC_THEN] = new Map();
+  for (const r of fc_trend) {
+    const v = Number(r.fc_value); if (!(v > 0)) continue;
+    snap.fc[NOW].set(r.player_id, v);
+    if (r.fc_trend30 != null) snap.fc[FC_THEN].set(r.player_id, Math.max(1, v - Number(r.fc_trend30)));
+  }
+  // ESPN: points per game above a positional replacement line, from ESPN's own weekly projections.
+  // History uses a 3-week window around each week; the current week uses every remaining week.
+  const proj = new Map();
+  for (const r of espn_weekly) if (r.projected != null && !r.bye) (proj.get(r.player_id) ?? proj.set(r.player_id, new Map()).get(r.player_id)).set(Number(r.week), Number(r.projected));
+  for (const w of WEEKS) {
+    const ppg = new Map();
+    for (const [id, m] of proj) {
+      const span = w === NOW ? [...m.keys()].filter((k) => k >= NOW) : [w - 1, w, w + 1];
+      const v = span.map((k) => m.get(k)).filter((x) => x != null);
+      if (v.length && pos.get(id)) ppg.set(id, v.reduce((s, x) => s + x, 0) / v.length);
+    }
+    snap.espn[w] = aboveReplacement(ppg);
+  }
+  function aboveReplacement(ppg) {
+    const byPos = {}; for (const [id, v] of ppg) (byPos[pos.get(id)] ??= []).push(v);
+    for (const k in byPos) byPos[k].sort((a, b) => b - a);
+    const start = { QB: 12, RB: 24, WR: 24, TE: 12 };
+    const flexPool = ['RB', 'WR', 'TE'].flatMap((k) => (byPos[k] || []).slice(start[k]).map((v) => [k, v])).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    for (const [k] of flexPool) start[k]++;
+    const out = new Map();
+    for (const [id, v] of ppg) {
+      const k = pos.get(id), list = byPos[k] || [];
+      const lastStarter = list[Math.min(start[k], list.length) - 1] ?? 0;
+      const waiver = list[Math.min(rostered.filter((p) => p.pos === k).length, list.length - 1)] ?? 0;
+      const par = v - (lastStarter + waiver) / 2;
+      if (par > 0) out.set(id, par);
+    }
+    return out;
+  }
+
+  // Shared curve: each source's sorted values normalized to its #1, averaged rank by rank, scaled to 100.
+  const ranked = (m) => [...m].sort((a, b) => b[1] - a[1]);
+  const curves = Object.keys(snap).map((s) => ranked(snap[s][NOW] || new Map()).map(([, v], i, a) => v / a[0][1]));
+  const len = Math.max(...curves.map((c) => c.length));
+  const curve = Array.from({ length: len }, (_, i) => {
+    const vals = curves.map((c) => c[i] ?? 0);
+    return 100 * vals.reduce((s, x) => s + x, 0) / vals.length;
+  });
+  const at = (rank) => curve[Math.min(rank, curve.length) - 1] ?? 0;
+  // Read a snapshot onto the curve. A player the source has seen but left off this snapshot reads one past its last rank.
+  const mapped = {};
+  for (const s in snap) {
+    const seen = new Set(Object.values(snap[s]).flatMap((m) => [...m.keys()]));
+    mapped[s] = {};
+    for (const w in snap[s]) {
+      const r = ranked(snap[s][w]), mm = new Map(r.map(([id], i) => [id, at(i + 1)]));
+      const tail = at(r.length + 1);
+      for (const id of seen) if (!mm.has(id)) mm.set(id, s === 'espn' ? 0 : tail);
+      mapped[s][w] = mm;
+    }
+  }
+  const get = (s, w, id) => mapped[s][w]?.get(id);
+  // Weekly step of a source between w-1 and w: direct for weekly sources, an even share of Week 4 → 8 for RSJ and FC.
+  const step = (s, w, id) => {
+    if (s === 'cbs' || s === 'espn') { const a = get(s, w - 1, id), b = get(s, w, id); return a == null || b == null ? null : b - a; }
+    const from = s === 'fc' ? FC_THEN : 4, a = get(s, from, id), b = get(s, NOW, id);
+    return w > from && w <= NOW && a != null && b != null ? (b - a) / (NOW - from) : null;
+  };
+
+  const ids = new Set(Object.values(mapped).flatMap((o) => Object.values(o).flatMap((m) => [...m.keys()])));
+  const out = [];
+  const r1 = (x) => Math.round(x * 10) / 10;
+  for (const id of ids) {
+    if (!pos.get(id)) continue;
+    const parts = { cbs: get('cbs', NOW, id), rsj: get('rsj', NOW, id), fc: get('fc', NOW, id), espn: get('espn', NOW, id) };
+    const have = Object.values(parts).filter((v) => v != null);
+    if (!have.length) continue;
+    let v = have.reduce((s, x) => s + x, 0) / have.length;
+    const vals = { [NOW]: v };
+    for (let w = NOW; w > WEEKS[0]; w--) {
+      const steps = ['cbs', 'rsj', 'fc', 'espn'].map((s) => step(s, w, id)).filter((x) => x != null);
+      if (steps.length) v -= steps.reduce((s, x) => s + x, 0) / steps.length;
+      vals[w - 1] = Math.max(0, v);
+    }
+    const spread = have.length > 1 ? Math.max(...have) - Math.min(...have) : null;
+    for (const w of WEEKS) out.push({ player_id: id, week: w, value: r1(vals[w]), n_sources: have.length,
+      cbs: w === NOW && parts.cbs != null ? r1(parts.cbs) : null, rsj: w === NOW && parts.rsj != null ? r1(parts.rsj) : null,
+      fc: w === NOW && parts.fc != null ? r1(parts.fc) : null, espn: w === NOW && parts.espn != null ? r1(parts.espn) : null,
+      spread: w === NOW && spread != null ? r1(spread) : null });
+  }
+  for (const w of WEEKS) for (const k of ['QB', 'RB', 'WR', 'TE']) {
+    out.filter((r) => r.week === w && pos.get(r.player_id) === k).sort((a, b) => b.value - a.value).forEach((r, i) => { r.pos_rank = i + 1; });
+  }
+  return out;
+}
+    const known = new Set(players.map((p) => p.player_id));
+    const extra = waiver_pool.filter((w) => !known.has(w.player_id)).map((w) => ({ player_id: w.player_id, name: w.name, pos: w.pos, team: w.team, owner: 'Free agent' }));
+    return consensusFn(cbs_history, rsj_history, fc_trend, espn_weekly, players.concat(extra));
+  },
+});
+
+dash.calc('waivers', {
+  title: 'Waiver wire, top 30',
+  description: 'The 30 waiver candidates (free agents and players on waivers, status from ESPN) with the highest consensus value now, with the change from last week, how many sources list them, ESPN’s rest-of-season points per game, and the gap to your lowest-valued player at the same position.',
+  inputs: ['consensus', 'waiver_pool', 'players', 'espn_player'],
+  fn: (consensus, waiver_pool, players, espn_player) => {
+    const last = Math.max(...consensus.map((r) => r.week));
+    const now = new Map(), prev = new Map();
+    for (const r of consensus) { if (r.week === last) now.set(r.player_id, r); if (r.week === last - 1) prev.set(r.player_id, r.value); }
+    const ep = new Map(espn_player.map((r) => [r.player_id, r]));
+    const worst = {}, lowest = {}; // worst = my team's lowest per position; lowest = every team's
+    for (const p of players) {
+      if (p.owner === 'Free agent') continue;
+      const v = now.get(p.player_id)?.value ?? 0, k = p.owner + '|' + p.pos;
+      if (!lowest[k] || v < lowest[k].value) lowest[k] = { name: p.name, value: v };
+      if (!(p.mine === true || p.mine === 'true')) continue;
+      if (!worst[p.pos] || v < worst[p.pos].value) worst[p.pos] = { name: p.name, value: v };
+    }
+    return waiver_pool.map((w) => {
+      const c = now.get(w.player_id); if (!c) return null;
+      const mine = worst[w.pos];
+      return { player_id: w.player_id, name: w.name, pos: w.pos, team: w.team, status: w.espn_status === 'WAIVERS' ? 'Waivers' : 'Free agent',
+        value: c.value, week_chg: prev.has(w.player_id) ? Math.round((c.value - prev.get(w.player_id)) * 10) / 10 : null, n_sources: c.n_sources,
+        ros_ppg: ep.get(w.player_id)?.ros_ppg ?? null, my_worst: mine ? mine.name : null,
+        upgrade: mine ? Math.round((c.value - mine.value) * 10) / 10 : null,
+        lowest: Object.fromEntries(Object.entries(lowest).filter(([k]) => k.endsWith('|' + w.pos)).map(([k, v]) => [k.slice(0, -w.pos.length - 1), v])) };
+    }).filter(Boolean).sort((a, b) => b.value - a.value || (b.ros_ppg ?? 0) - (a.ros_ppg ?? 0)).slice(0, 30).map((r, i) => ({ rank: i + 1, ...r }));
+  },
+});
+
+dash.calc('espn_player', {
+  title: 'Scored vs ESPN expected',
+  description: 'Per player: points scored and ESPN’s expected points over the weeks already played (byes excluded), the gap, and ESPN’s projection for the weeks left.',
+  inputs: ['espn_weekly'],
+  fn: (espn_weekly) => {
+    const by = new Map();
+    for (const r of espn_weekly) { if (!by.has(r.player_id)) by.set(r.player_id, []); by.get(r.player_id).push(r); }
+    const sum = (a) => a.reduce((s, x) => s + x, 0), r1 = (x) => Math.round(x * 10) / 10;
+    return [...by].map(([player_id, rows]) => {
+      const played = rows.filter((r) => !r.forward && !r.bye && r.actual != null && r.projected != null);
+      const left = rows.filter((r) => r.forward && !r.bye && r.projected != null);
+      const a = sum(played.map((r) => r.actual)), e = sum(played.map((r) => r.projected)), ros = sum(left.map((r) => r.projected));
+      return { player_id, games: played.length, actual_total: r1(a), expected_total: r1(e), diff: r1(a - e), diff_pct: e ? (a - e) / e : null,
+        actual_ppg: played.length ? r1(a / played.length) : null, expected_ppg: played.length ? r1(e / played.length) : null,
+        ros_total: r1(ros), ros_ppg: left.length ? r1(ros / left.length) : null, season_total: r1(a + ros), games_left: left.length };
+    });
+  },
+});
+
+dash.calc('espn_grid', {
+  title: 'Points by week grid',
+  description: 'One row per player: wkN is points scored for played weeks and ESPN’s projection for later ones (empty on a bye); wkN_p is ESPN’s expectation for that week.',
+  inputs: ['espn_weekly', 'players'],
+  fn: (espn_weekly, players) => {
+    const name = new Map(players.map((p) => [p.player_id, p.name]));
+    const by = new Map();
+    for (const r of espn_weekly) { if (!by.has(r.player_id)) by.set(r.player_id, { player_id: r.player_id, name: name.get(r.player_id) || r.player_id }); }
+    for (const r of espn_weekly) { const o = by.get(r.player_id); o['wk' + r.week] = r.bye ? null : (r.forward ? r.projected : r.actual); o['wk' + r.week + '_p'] = r.bye ? null : r.projected; o['wk' + r.week + '_f'] = r.forward; o['wk' + r.week + '_s'] = r.status; }
+    return [...by.values()];
+  },
+});
+
+dash.calc('series', {
+  title: 'Weekly values',
+  description: 'Weekly values tagged by source: the consensus value out of 100, and CBS weekly chart values (full-PPR column; QBs 1QB 4-pt TD).',
+  inputs: ['cbs_history', 'consensus'],
+  fn: (cbs_history, consensus) => [
+    ...consensus.map((r) => ({ source: 'consensus', player_id: r.player_id, week: r.week, date: cbs_history.find((c) => Number(c.week) === r.week)?.date, value: r.value, pos_rank: r.pos_rank })),
+    ...cbs_history.map((r) => ({ source: 'cbs', player_id: r.player_id, week: Number(r.week), date: r.date, value: Number(r.value), pos_rank: Number(r.pos_rank) })),
+  ],
+});
+
+dash.calc('board', {
+  title: 'Player board',
+  description: 'One row per charted player. For the weekly source (cbs_): Week 1, last week and current value, change, % changes, season high and low, position ranks, status. Plus RSJ value and change, FantasyCalc trend, and current values out of 100: consensus, ESPN rest-of-season projected points, position rank and value, FantasyCalc value.',
+  inputs: ['series', 'rsj_restated', 'players', 'fc_trend', 'ros_values'],
+  fn: (series, rsj_restated, players, fc_trend, ros_values) => {
+    const ros = new Map(ros_values.map((r) => [r.player_id, r]));
+    const num = (x) => x == null || x === '' ? null : Number(x);
+    const per = {};
+    for (const src of ['consensus', 'cbs']) {
+      const rows = series.filter((r) => r.source === src);
+      const weeks = [...new Set(rows.map((r) => r.week))].sort((a, b) => a - b);
+      const by = new Map();
+      for (const r of rows) { if (!by.has(r.player_id)) by.set(r.player_id, new Map()); by.get(r.player_id).set(r.week, r); }
+      per[src] = { by, first: weeks[0], prev: weeks[weeks.length - 2], last: weeks[weeks.length - 1] };
+    }
+    const rw = [...new Set(rsj_restated.map((r) => r.week))].sort((a, b) => a - b);
+    const rsj = new Map();
+    for (const r of rsj_restated) { if (!rsj.has(r.player_id)) rsj.set(r.player_id, new Map()); rsj.get(r.player_id).set(r.week, r); }
+    const fc = new Map(fc_trend.map((r) => [r.player_id, r]));
+    return players.filter((p) => p.charted === true || p.charted === 'true').map((p) => {
+      const row = { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, owner: p.owner, mine: p.mine === true || p.mine === 'true' };
+      for (const src of ['consensus', 'cbs']) {
+        const { by, first, prev, last } = per[src];
+        const h = by.get(p.player_id) || new Map();
+        const s = h.get(first), n = h.get(last), pv = h.get(prev);
+        const vals = [...h.values()].map((x) => x.value);
+        Object.assign(row, {
+          [src + '_status']: !h.size ? 'none' : n ? (s ? 'listed' : 'new') : 'off',
+          [src + '_start']: s ? s.value : null,
+          [src + '_now']: n ? n.value : null,
+          [src + '_chg']: s && n ? Math.round((n.value - s.value) * 10) / 10 : null,
+          [src + '_chg_pct']: s && n ? n.value / s.value - 1 : null,
+          [src + '_week_pct']: pv && n ? n.value / pv.value - 1 : null,
+          [src + '_week_chg']: pv && n ? Math.round((n.value - pv.value) * 10) / 10 : null,
+          [src + '_high']: vals.length ? Math.max(...vals) : null,
+          [src + '_low']: vals.length ? Math.min(...vals) : null,
+          [src + '_rank0']: s ? s.pos_rank : null,
+          [src + '_rank']: n ? n.pos_rank : null,
+          [src + '_rank_move']: s && n ? s.pos_rank - n.pos_rank : null,
+        });
+      }
+      const r = rsj.get(p.player_id) || new Map();
+      const rs = r.get(rw[0]), rn = r.get(rw[rw.length - 1]);
+      const f = fc.get(p.player_id);
+      row.rsj_now = rn ? rn.value : null;
+      row.rsj_change_pct = rs && rn ? rn.value / rs.restated - 1 : null;
+      row.fc_trend30_pct = f && f.fc_trend30_pct != null ? Number(f.fc_trend30_pct) : null;
+      const v = ros.get(p.player_id) || {};
+      Object.assign(row, { consensus: row.consensus_now, espn_ros_pts: num(v.espn_ros_pts), espn_pos_rank: v.espn_pos_rank || null, espn_value: num(v.espn_100), fc_value: num(v.fc_100) });
+      return row;
+    });
+  },
+});
+
+dash.calc('weekly', {
+  title: 'Week-by-week values',
+  description: 'One row per player and source (key = source:player), one column per weekly chart (wk1, wk2, …), empty when the player was off that week’s chart.',
+  inputs: ['series', 'players'],
+  fn: (series, players) => {
+    const out = [];
+    for (const src of ['consensus', 'cbs']) {
+      const rows = series.filter((r) => r.source === src);
+      const weeks = [...new Set(rows.map((r) => r.week))].sort((a, b) => a - b);
+      const by = new Map();
+      for (const r of rows) { if (!by.has(r.player_id)) by.set(r.player_id, {}); by.get(r.player_id)['wk' + r.week] = r.value; }
+      for (const p of players) {
+        if (!by.has(p.player_id)) continue;
+        const row = { key: src + ':' + p.player_id, source: src, player_id: p.player_id, name: p.name };
+        for (const w of weeks) row['wk' + w] = by.get(p.player_id)['wk' + w] ?? null;
+        out.push(row);
+      }
+    }
+    return out;
+  },
+});
+
+dash.calc('portfolio_weeks', {
+  title: 'Team value by week',
+  description: 'Each fantasy team’s current roster valued on every weekly chart, per source: the best 14 QB/RB/WR/TE count; players off a chart count as 0.',
+  inputs: ['series', 'players'],
+  fn: (series, players) => {
+    const owner = new Map(players.filter((p) => p.owner !== 'Free agent').map((p) => [p.player_id, p]));
+    const teams = [...new Set([...owner.values()].map((p) => p.owner))];
+    const mine = new Set([...owner.values()].filter((p) => p.mine === true || p.mine === 'true').map((p) => p.owner));
+    const out = [];
+    for (const src of ['consensus', 'cbs']) {
+      const rows = series.filter((r) => r.source === src);
+      const weeks = [...new Set(rows.map((r) => r.week))].sort((a, b) => a - b);
+      const vals = new Map();
+      for (const t of teams) for (const w of weeks) vals.set(t + '|' + w, []);
+      for (const r of rows) { const p = owner.get(r.player_id); if (p) vals.get(p.owner + '|' + r.week).push(r.value); }
+      for (const t of teams) for (const w of weeks) out.push({ source: src, owner: t, week: w, total: Math.round(rosterValue(vals.get(t + '|' + w)) * 10) / 10, mine: mine.has(t) });
+    }
+    return out;
+  },
+});
+
+dash.calc('portfolios', {
+  title: 'Team portfolios',
+  description: 'Per source and fantasy team (key = source:team): current roster’s value at Week 1, last week and now, the changes, and the same roster’s RSJ total now.',
+  inputs: ['portfolio_weeks', 'board', 'players'],
+  fn: (portfolio_weeks, board, players) => {
+    const rec = new Map(players.map((p) => [p.owner, p.record]));
+    const rsj = new Map();
+    for (const r of board) if (r.owner !== 'Free agent') rsj.set(r.owner, (rsj.get(r.owner) || 0) + (r.rsj_now || 0));
+    const out = [];
+    for (const src of ['consensus', 'cbs']) {
+      const rows = portfolio_weeks.filter((r) => r.source === src);
+      const weeks = [...new Set(rows.map((r) => r.week))].sort((a, b) => a - b);
+      const at = (t, w) => rows.find((r) => r.owner === t && r.week === w).total;
+      const teams = [...new Set(rows.map((r) => r.owner))];
+      out.push(...teams.map((t) => {
+        const s = at(t, weeks[0]), n = at(t, weeks[weeks.length - 1]), pv = at(t, weeks[weeks.length - 2]);
+        return { key: src + ':' + t, source: src, owner: t, record: rec.get(t) || '', mine: rows.find((r) => r.owner === t).mine,
+          start_total: s, prev_total: pv, now_total: n, change_pct: s ? n / s - 1 : null, week_pct: pv ? n / pv - 1 : null, rsj_total: rsj.get(t) || 0 };
+      }).sort((a, b) => b.now_total - a.now_total));
+    }
+    return out;
+  },
+});
+
+dash.calc('headline', {
+  title: 'Headline figures',
+  description: 'Per source: chart dates, biggest value gain and loss since Week 1 and this week (players on both charts), and my roster’s totals.',
+  inputs: ['board', 'portfolios', 'series'],
+  fn: (board, portfolios, series) => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return ['consensus', 'cbs'].map((src) => {
+      const rows = series.filter((r) => r.source === src);
+      const weeks = [...new Set(rows.map((r) => r.week))].sort((a, b) => a - b);
+      const label = (w) => { const d = rows.find((r) => r.week === w).date; return `Week ${w} (${months[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8, 10))})`; };
+      const season = board.filter((r) => r[src + '_chg'] != null).sort((a, b) => b[src + '_chg'] - a[src + '_chg']);
+      const week = board.filter((r) => r[src + '_week_chg'] != null).sort((a, b) => b[src + '_week_chg'] - a[src + '_week_chg']);
+      const mine = portfolios.find((t) => t.source === src && t.mine) || {};
+      const g = season[0], l = season[season.length - 1], wg = week[0], wl = week[week.length - 1];
+      return {
+        source: src, first_label: label(weeks[0]), last_label: label(weeks[weeks.length - 1]), week_label: `Week ${weeks[weeks.length - 2]} → ${weeks[weeks.length - 1]}`,
+        gainer_id: g.player_id, gainer: g.name, gainer_chg: g[src + '_chg'],
+        loser_id: l.player_id, loser: l.name, loser_chg: l[src + '_chg'],
+        week_gainer_id: wg.player_id, week_gainer: wg.name, week_gainer_chg: wg[src + '_week_chg'],
+        week_loser_id: wl.player_id, week_loser: wl.name, week_loser_chg: wl[src + '_week_chg'],
+        my_now: mine.now_total ?? null, my_pct: mine.change_pct ?? null, my_week_pct: mine.week_pct ?? null,
+      };
+    });
+  },
+});
+
+dash.calc('trade_values', {
+  title: 'Current trade values',
+  description: 'Every charted, rostered or FantasyCalc player with current values out of 100 (each source’s #1 player = 100; 12-team, full PPR, 1QB): RSJ, FantasyCalc, ESPN projected points above replacement, and their average. 0 when a source doesn’t list the player.',
+  inputs: ['players', 'ros_values', 'consensus'],
+  fn: (players, ros_values, consensus) => {
+    const cn = new Map(); const last = Math.max(...consensus.map((r) => r.week));
+    for (const r of consensus) if (r.week === last) cn.set(r.player_id, r.value);
+    const v = new Map(ros_values.map((r) => [r.player_id, r]));
+    const num = (x) => x == null || x === '' ? 0 : Number(x);
+    return players.map((p) => {
+      const r = v.get(p.player_id) || {};
+      return { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, owner: p.owner, owner_id: Number(p.owner_id) || 0,
+        rsj: num(r.rsj_100), fc: num(r.fc_100), espn: num(r.espn_100), consensus: cn.get(p.player_id) ?? 0,
+        espn_ros_pts: r.espn_ros_pts == null ? null : Number(r.espn_ros_pts) };
+    });
+  },
+});
+
+(() => {
+  const root = document.querySelector('.tvx');
+  const $ = (s, el = root) => el.querySelector(s);
+  const fmt0 = d3.format(',');
+  const SRC_NAME = { cbs: 'CBS', rsj: 'RSJ', fc: 'FantasyCalc', espn: 'ESPN projection', consensus: 'Consensus' };
+  const SCALE100 = new Set(['consensus', 'rsj', 'fc', 'espn']); // trade builder sources, out of 100
+  const fmtV = (src, v) => v == null ? '—' : SCALE100.has(src) ? v.toFixed(1) : fmt0(Math.round(v));
+  const fmtChg = (src, v) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '-' : '') + fmtV(src, Math.abs(v));
+  const pct = (v) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%';
+  const dir = (v) => v > 0 ? 'up' : v < 0 ? 'down' : '';
+  // Flip tiles: random key movers' % change since Week 1 (left pair) and this week (right pair)
+  const FLIP = { pools: { season: [], week: [] }, src: null, paused: false, timer: null };
+  const flipTiles = () => [...root.querySelectorAll('.tvx-flip')];
+  const flipFill = (t, r) => {
+    const season = t.dataset.span === 'season', src = FLIP.src, v = r[src + (season ? '_chg_pct' : '_week_pct')], chg = r[src + (season ? '_chg' : '_week_chg')];
+    t.dataset.key = r.player_id;
+    const who = el('div', 'tvx-tile-who'); who.append(el('div', 'tvx-tile-name', r.name), el('div', 'tvx-tile-sub', `${r.pos} · ${r.team} · ${r.owner && r.owner !== 'Free agent' ? r.owner : 'free agent'}`));
+    const row = el('div', 'tvx-tile-row'); row.append(photoImg(PHOTOS.get(r.player_id)), who);
+    const big = el('div', 'tvx-big ' + dir(v), pct(v).replace(/^[+-]/, ''));
+    $('.tvx-flip-in', t).replaceChildren(el('div', 'tvx-kind', season ? 'Season · since Wk 1' : 'This week'), row, big,
+      el('div', 'tvx-tile-sub', `${fmtChg(src, chg)} · now ${fmtV(src, r[src + '_now'])}`));
+    return big;
+  };
+  // split-flap digits: every digit rolls through random ones and they land left to right
+  const flipRoll = (node) => {
+    const text = node.textContent; let n = 0;
+    const id = setInterval(() => {
+      n++; node.textContent = [...text].map((c, i) => /\d/.test(c) && i >= n / 2 ? String(Math.floor(Math.random() * 10)) : c).join('');
+      if (n / 2 >= text.length) { clearInterval(id); node.textContent = text; }
+    }, 35);
+  };
+  const flipPick = (span, taken) => { const p = FLIP.pools[span].filter((r) => !taken.has(r.player_id)); return p.length ? p[Math.floor(Math.random() * p.length)] : null; };
+  const flipNext = () => {
+    const tiles = flipTiles(); if (!tiles.length || FLIP.paused || document.hidden) return;
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches, taken = new Set(tiles.map((x) => x.dataset.key));
+    tiles.forEach((t, k) => {
+      const r = flipPick(t.dataset.span, taken); if (!r) return; taken.add(r.player_id);
+      if (still) { flipFill(t, r); return; }
+      setTimeout(() => { t.classList.add('out'); setTimeout(() => { flipRoll(flipFill(t, r)); t.classList.remove('out'); }, 110); }, k * 90);
+    });
+  };
+  const flipStart = (board, src) => {
+    FLIP.src = src;
+    // key movers: the 16 biggest moves in value points, among players worth at least 5
+    const live = board.filter((r) => r[src + '_now'] >= 5);
+    const top = (rows, k) => rows.filter((r) => r[k] != null).sort((a, b) => Math.abs(b[k]) - Math.abs(a[k])).slice(0, 16);
+    FLIP.pools.season = top(live.filter((r) => r[src + '_start'] >= 5), src + '_chg');
+    FLIP.pools.week = top(live, src + '_week_chg');
+    const taken = new Set(); flipTiles().forEach((t) => { t.dataset.key = ''; const r = flipPick(t.dataset.span, taken); if (r) { taken.add(r.player_id); flipFill(t, r); } });
+    if (!FLIP.timer) FLIP.timer = setInterval(flipNext, 5000);
+  };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const photoImg = (src, cls) => { const i = el('img', 'tvx-photo' + (cls ? ' ' + cls : '')); i.alt = ''; i.loading = 'lazy'; if (src) i.src = src; return i; };
+  const SUF = new Set(['JR', 'SR', 'II', 'III', 'IV', 'V']);
+  const symbols = new Map();
+  const symbolFor = (r) => {
+    if (symbols.has(r.player_id)) return symbols.get(r.player_id);
+    const parts = r.name.toUpperCase().replace(/[.'’]/g, '').split(/[\s-]+/).filter((t) => !SUF.has(t));
+    let sym = parts[parts.length - 1].slice(0, 5);
+    if ([...symbols.values()].includes(sym)) sym = parts[0][0] + parts[parts.length - 1].slice(0, 4);
+    symbols.set(r.player_id, sym);
+    return sym;
+  };
+
+  const state = { src: 'consensus', q: '', pos: '', owner: '', sort: 'chg', desc: true, sel: null, drawn: false };
+  const lockIcon = (on) => `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3" y="7" width="10" height="7.5" rx="1.6" fill="currentColor"/><path d="${on ? 'M5.2 7V5.2a2.8 2.8 0 0 1 5.6 0V7' : 'M5.2 7V5.2a2.8 2.8 0 0 1 5.4-1'}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`; // fixed markup, no data in it
+  const wv = { pos: '', up: false };
+  const HOME = 'friends of coal';
+  let ME = (() => { try { return localStorage.getItem('tvx-me'); } catch { return null; } })() || HOME;
+  const KEEP = { [HOME]: new Set(['kenneth-walker', 'isaiah-likely']) }; // never trade, per team (Tucker's untouchables)
+  const APART = { [HOME]: [['puka-nacua', 'nico-collins']] };
+  const trade = { mode: 'teams', vsrc: 'consensus', teamA: ME, teamB: '__all', apart: APART[ME] || [], a: new Set(), b: new Set(), qa: '', qb: '', keep: (KEEP[ME] ||= new Set()) };
+  $('#tvx-me').addEventListener('change', (e) => {
+    ME = e.target.value; try { localStorage.setItem('tvx-me', ME); } catch {}
+    Object.assign(trade, { teamA: ME, teamB: '__all', apart: APART[ME] || [], keep: (KEEP[ME] ||= new Set()), finds: null }); trade.a.clear(); trade.b.clear();
+    render();
+  });
+  const searchEl = $('#tvx-search'), ownerEl = $('#tvx-owner');
+  const segPick = (sel, attr, val) => root.querySelectorAll(sel + ' button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset[attr] === val)));
+  $('#tvx-src').addEventListener('click', (e) => { const b = e.target.closest('button[data-src]'); if (!b) return; state.src = b.dataset.src; segPick('#tvx-src', 'src', state.src); render(); });
+  searchEl.addEventListener('input', () => { state.q = searchEl.value.trim().toLowerCase(); render(); });
+  ownerEl.addEventListener('change', () => { state.owner = ownerEl.value; render(); });
+  $('#tvx-pos').addEventListener('click', (e) => { const b = e.target.closest('button[data-pos]'); if (!b) return; state.pos = b.dataset.pos; segPick('#tvx-pos', 'pos', state.pos); render(); });
+  $('#board-grid thead').addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-sort]'); if (!th) return;
+    const k = th.dataset.sort;
+    if (state.sort === k) state.desc = !state.desc; else { state.sort = k; state.desc = !['name', 'pos', 'owner'].includes(k); }
+    render();
+  });
+  const narrow = () => matchMedia('(max-width: 1099px)').matches;
+  const pick = (id, scroll) => { state.sel = id; render(); if (scroll) $('#quote').scrollIntoView({ block: narrow() ? 'start' : 'nearest', behavior: 'smooth' }); };
+  $('#board-more').addEventListener('click', () => { state.all = !state.all; render(); });
+  $('#board-grid tbody').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-key]'); if (tr) pick(tr.dataset.key, narrow()); });
+  $('#weekly .tvx-grid tbody').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-pid]'); if (tr) pick(tr.dataset.pid, true); });
+  $('.tvx-pgrid tbody').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-pid]'); if (tr) pick(tr.dataset.pid, true); });
+  ['#gainers', '#losers'].forEach((s) => $(s).addEventListener('click', (e) => { const li = e.target.closest('li[data-key]'); if (li) pick(li.dataset.key, true); }));
+  $('#quotes').addEventListener('click', (e) => { const t = e.target.closest('.tvx-tile[data-key]'); if (t && t.dataset.key) pick(t.dataset.key, true); });
+  ['pointerenter', 'focusin'].forEach((ev) => $('#quotes').addEventListener(ev, () => { FLIP.paused = true; }));
+  ['pointerleave', 'focusout'].forEach((ev) => $('#quotes').addEventListener(ev, () => { FLIP.paused = false; }));
+
+  // Trade builder controls
+  $('#tb-mode').addEventListener('click', (e) => { const b = e.target.closest('button[data-mode]'); if (!b) return; trade.mode = b.dataset.mode; segPick('#tb-mode', 'mode', trade.mode); trade.finds = null; if (trade.mode !== 'teams' && trade.teamB === '__all') trade.teamB = null; trade.a.clear(); trade.b.clear(); renderTrade(); });
+  $('#tb-src').addEventListener('change', (e) => { trade.vsrc = e.target.value; trade.finds = null; renderTrade(); });
+  $('#tb-clear').addEventListener('click', () => { trade.a.clear(); trade.b.clear(); trade.qa = ''; trade.qb = ''; trade.finds = null; renderTrade(); });
+  $('#wv-pos').addEventListener('click', (e) => { const b = e.target.closest('button[data-pos]'); if (!b) return; wv.pos = b.dataset.pos; segPick('#wv-pos', 'pos', wv.pos); render(); });
+  $('#wv-up').addEventListener('change', (e) => { wv.up = e.target.checked; render(); });
+  $('.tvx-wv tbody').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-key]'); if (tr && TV.has(tr.dataset.key)) pick(tr.dataset.key, true); });
+
+  const filtered = (rows) => rows.filter((r) => (!state.pos || r.pos === state.pos)
+    && (!state.owner || (state.owner === '__mine' ? r.mine : r.owner === state.owner))
+    && (!state.q || r.name.toLowerCase().includes(state.q) || (r.team || '').toLowerCase() === state.q || r.owner.toLowerCase().includes(state.q)));
+
+  const vsrc = () => state.src === 'espn' ? 'consensus' : state.src; // value tables always read a value source
+  const field = (k) => ['rsj_now', 'rsj_change_pct', 'fc_trend30_pct', 'consensus', 'espn_ros_pts', 'espn_value', 'fc_value', 'name', 'pos', 'owner'].includes(k) ? k : vsrc() + '_' + k;
+  function sorted(rows) {
+    const k = field(state.sort), sgn = state.desc ? -1 : 1, now = vsrc() + '_now';
+    return rows.slice().sort((a, c) => {
+      const va = a[k], vc = c[k];
+      if (va == null && vc == null) return (c[now] ?? 0) - (a[now] ?? 0) || (c.rsj_now ?? 0) - (a.rsj_now ?? 0);
+      if (va == null) return 1; if (vc == null) return -1;
+      return (typeof va === 'string' ? va.localeCompare(vc) : va - vc) * sgn;
+    });
+  }
+
+  function measure(svg, texts, size) {
+    const probe = svg.append('text').attr('font-size', size);
+    const wd = d3.max(texts, (t) => { probe.text(t); return probe.node().getComputedTextLength(); }) || 0;
+    probe.remove();
+    return wd;
+  }
+  function placeTip(box, tip, px, py) {
+    tip.hidden = false;
+    const bw = box.clientWidth, tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.max(0, Math.min(bw - tw, px + 14 > bw - tw ? px - tw - 14 : px + 14)) + 'px';
+    tip.style.top = Math.max(0, py - th / 2) + 'px';
+  }
+
+  function sparkline(hist, weeks, up) {
+    const w = 84, h = 22, svg = d3.create('svg').attr('class', 'tvx-spark').attr('width', w).attr('height', h).attr('viewBox', `0 0 ${w} ${h}`);
+    const pts = weeks.map((wk) => ({ week: wk, value: hist.get(wk)?.value ?? null }));
+    if (!pts.some((p) => p.value != null)) return svg.node();
+    const x = d3.scaleLinear([weeks[0], weeks[weeks.length - 1]], [3, w - 3]);
+    const [lo, hi] = d3.extent(pts.filter((p) => p.value != null), (p) => p.value);
+    const y = d3.scaleLinear([Math.min(lo, hi - 1), hi], [h - 3, 3]);
+    const color = up == null ? 'var(--cds-chart-muted)' : up ? 'var(--color-ok)' : 'var(--color-bad)';
+    svg.append('path').attr('d', d3.line((p) => x(p.week), (p) => y(p.value)).defined((p) => p.value != null)(pts)).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 1.75).attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round');
+    const e = [...pts].reverse().find((p) => p.value != null);
+    svg.append('circle').attr('cx', x(e.week)).attr('cy', y(e.value)).attr('r', 2.5).attr('fill', color);
+    return svg.node();
+  }
+
+  function drawPoints(box, rows) {
+    box.replaceChildren();
+    const W = Math.max(260, box.clientWidth), H = 240;
+    if (!rows.length) { box.append(el('div', 'tvx-fail', 'No ESPN weekly points for this player')); return; }
+    const weeks = rows.map((r) => r.week);
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`);
+    const top = Math.max(10, d3.max(rows, (p) => Math.max(p.actual ?? 0, p.projected ?? 0)));
+    const lo = Math.min(0, d3.min(rows, (p) => p.actual ?? 0));
+    const y = d3.scaleLinear([lo, top * 1.1], [H - 26, 12]).nice();
+    const yt = y.ticks(5);
+    const left = measure(svg, yt.map((t) => fmt0(t)), 11) + 10;
+    const x = d3.scaleLinear([weeks[0], weeks[weeks.length - 1]], [left + 10, W - 14]);
+    const fwd = rows.filter((p) => p.forward);
+    if (fwd.length) {
+      const x0 = x(fwd[0].week) - (x(weeks[1]) - x(weeks[0])) / 2;
+      svg.append('rect').attr('x', x0).attr('y', 12).attr('width', W - 8 - x0).attr('height', H - 38).attr('fill', 'var(--cds-chart-muted)').attr('opacity', .12);
+      svg.append('text').attr('x', x0 + 6).attr('y', 24).attr('font-size', 11).attr('fill', 'var(--color-fg-muted)').text('Not played yet');
+    }
+    svg.selectAll('line.g').data(yt).join('line').attr('x1', left).attr('x2', W - 8).attr('y1', y).attr('y2', y).attr('stroke', 'var(--cds-chart-grid)');
+    svg.selectAll('text.y').data(yt).join('text').attr('x', left - 6).attr('y', (t) => y(t) + 4).attr('text-anchor', 'end').attr('font-size', 11).attr('fill', 'var(--color-fg-muted)').text((t) => fmt0(t));
+    const xt = W < 330 ? weeks.filter((w, i) => i % 2 === 0) : weeks;
+    svg.selectAll('text.x').data(xt).join('text').attr('x', x).attr('y', H - 6).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', 'var(--color-fg-muted)').text((w) => (w === xt[0] ? 'Wk ' : '') + w);
+    // Projection line: drawn through every week that has one, so it runs straight across byes and missed games.
+    const line = rows.filter((p) => p.projected != null);
+    const lineY = (w) => {
+      const a = [...line].reverse().find((p) => p.week <= w), b = line.find((p) => p.week >= w);
+      if (a && b) return a.week === b.week ? y(a.projected) : y(a.projected + (b.projected - a.projected) * (w - a.week) / (b.week - a.week));
+      return y((a || b)?.projected ?? 0);
+    };
+    svg.append('path').attr('d', d3.line((p) => x(p.week), (p) => y(p.projected)).curve(d3.curveMonotoneX)(line))
+      .attr('fill', 'none').attr('stroke', dash.colors[0]).attr('stroke-width', 3).attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round');
+    svg.selectAll('circle.pj').data(line.filter((p) => p.forward)).join('circle')
+      .attr('cx', (p) => x(p.week)).attr('cy', (p) => y(p.projected)).attr('r', 3).attr('fill', dash.colors[0]);
+    // Scored points: dots only.
+    const played = rows.filter((p) => p.status === 'played');
+    const col = (p) => p.actual > p.projected ? 'var(--color-ok)' : p.actual < p.projected ? 'var(--color-bad)' : 'var(--color-fg-muted)';
+    const dots = svg.selectAll('circle.pt').data(played).join('circle')
+      .attr('cx', (p) => x(p.week)).attr('cy', (p) => y(p.actual)).attr('r', 5).attr('fill', col).attr('stroke', 'var(--color-panel)').attr('stroke-width', 1.5);
+    // Byes and missed games sit on the line where the week would be.
+    const marks = rows.filter((p) => p.status === 'bye' || p.status === 'out');
+    svg.selectAll('text.mk').data(marks).join('text')
+      .attr('class', (p) => p.status === 'bye' ? 'tvx-mk-bye' : 'tvx-mk-out')
+      .attr('x', (p) => x(p.week)).attr('y', (p) => lineY(p.week) + 5).attr('text-anchor', 'middle').attr('font-size', 14)
+      .attr('fill', (p) => p.status === 'bye' ? 'var(--color-warn)' : 'var(--color-bad)')
+      .attr('paint-order', 'stroke').attr('stroke', 'var(--color-panel)').attr('stroke-width', 3)
+      .text((p) => p.status === 'bye' ? 'B' : '✕');
+    const rule = svg.append('line').attr('y1', 12).attr('y2', H - 26).attr('stroke', 'var(--cds-chart-axis)').attr('opacity', 0);
+    const tip = el('div', 'tvx-tip'); tip.hidden = true; box.append(tip);
+    svg.append('rect').attr('width', W).attr('height', H).attr('fill', 'transparent')
+      .on('pointermove', (ev) => {
+        const [mx] = d3.pointer(ev);
+        const p = rows[d3.minIndex(rows, (q) => Math.abs(x(q.week) - mx))];
+        rule.attr('x1', x(p.week)).attr('x2', x(p.week)).attr('opacity', 1);
+        dots.attr('r', (q) => q === p ? 6.5 : 5);
+        const lines = [el('div', 'd', `Week ${p.week}${p.forward ? ' · not played yet' : ''}`)];
+        if (p.status === 'bye') lines.push(el('div', null, 'Bye week'));
+        else if (p.status === 'out') lines.push(el('div', null, p.forward ? 'ESPN projects him out' : 'Did not play'));
+        else if (p.forward) lines.push(el('div', null, `ESPN projects ${p.projected.toFixed(1)}`));
+        else {
+          lines.push(el('div', null, `Scored ${p.actual.toFixed(1)} · ESPN projected ${p.projected.toFixed(1)}`));
+          const c = Math.round((p.actual - p.projected) * 10) / 10;
+          lines.push(el('div', dir(c), `${c > 0 ? '+' : ''}${c.toFixed(1)} vs projection`));
+        }
+        tip.replaceChildren(...lines);
+        const sc = box.querySelector('svg').getBoundingClientRect().width / W;
+        placeTip(box, tip, x(p.week) * sc, (p.status === 'played' ? y(p.actual) : lineY(p.week)) * sc);
+      })
+      .on('pointerleave', () => { tip.hidden = true; rule.attr('opacity', 0); dots.attr('r', 5); });
+  }
+
+  function drawQuote(box, src, hist, weeks, dates) {
+    box.replaceChildren();
+    const W = Math.max(260, box.clientWidth), H = 240;
+    if (!hist.size) { box.append(el('div', 'tvx-fail', `Not on any ${SRC_NAME[src]} chart`)); return; }
+    const pts = weeks.map((w) => ({ week: w, date: dates.get(w), value: hist.get(w)?.value ?? null, pos_rank: hist.get(w)?.pos_rank ?? null }));
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`);
+    const y = d3.scaleLinear([0, Math.max(5, d3.max(pts, (p) => p.value ?? 0)) * 1.12], [H - 26, 10]).nice();
+    const yt = y.ticks(4);
+    const left = measure(svg, yt.map((t) => fmt0(t)), 11) + 10;
+    const lastPt = [...pts].reverse().find((p) => p.value != null);
+    const right = measure(svg, [fmtV(src, lastPt.value)], 12) + 16;
+    const x = d3.scaleLinear([weeks[0], weeks[weeks.length - 1]], [left + 8, W - right]);
+    svg.selectAll('line.g').data(yt).join('line').attr('x1', left).attr('x2', W - right + 6).attr('y1', y).attr('y2', y).attr('stroke', 'var(--cds-chart-grid)');
+    svg.selectAll('text.y').data(yt).join('text').attr('x', left - 6).attr('y', (t) => y(t) + 4).attr('text-anchor', 'end').attr('font-size', 11).attr('fill', 'var(--color-fg-muted)').text((t) => fmt0(t));
+    const xt = W < 330 ? weeks.filter((w, i) => i % 2 === 0 || i === weeks.length - 1) : weeks;
+    svg.selectAll('text.x').data(xt).join('text').attr('x', x).attr('y', H - 6).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', 'var(--color-fg-muted)').text((w) => (w === xt[0] ? 'Wk ' : '') + w);
+    const firstPt = pts.find((p) => p.value != null);
+    const color = firstPt === lastPt ? 'var(--cds-chart-muted)' : lastPt.value >= firstPt.value ? 'var(--color-ok)' : 'var(--color-bad)';
+    const grad = svg.append('defs').append('linearGradient').attr('id', 'tvx-grad').attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
+    [[0, .26], [.25, .16], [.5, .08], [.75, .03], [1, 0]].forEach(([o, a]) => grad.append('stop').attr('offset', o).attr('style', `stop-color:${color};stop-opacity:${a}`));
+    const def = (p) => p.value != null;
+    svg.append('path').attr('d', d3.area((p) => x(p.week), y(0), (p) => y(p.value)).defined(def)(pts)).attr('fill', 'url(#tvx-grad)');
+    svg.append('path').attr('d', d3.line((p) => x(p.week), (p) => y(p.value)).defined(def)(pts)).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 2).attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round');
+    const yOf = (p) => y(p.value ?? 0);
+    const dots = svg.selectAll('circle.pt').data(pts).join('circle')
+      .attr('cx', (p) => x(p.week)).attr('cy', yOf).attr('r', (p) => p === lastPt ? 4.5 : 3.25)
+      .attr('fill', (p) => p.value == null ? 'var(--color-panel)' : color).attr('stroke', (p) => p.value == null ? 'var(--cds-chart-muted)' : 'var(--color-panel)').attr('stroke-width', (p) => p.value == null ? 1.5 : 2);
+    svg.append('text').attr('x', x(lastPt.week) + 8).attr('y', y(lastPt.value) + 4).attr('font-size', 12).attr('font-weight', 600).attr('fill', 'var(--color-fg)').text(fmtV(src, lastPt.value));
+    const rule = svg.append('line').attr('y1', 10).attr('y2', H - 26).attr('stroke', 'var(--cds-chart-axis)').attr('opacity', 0);
+    const tip = el('div', 'tvx-tip'); tip.hidden = true; box.append(tip);
+    const md = d3.utcFormat('%b %-d');
+    svg.append('rect').attr('width', W).attr('height', H).attr('fill', 'transparent')
+      .on('pointermove', (ev) => {
+        const [mx] = d3.pointer(ev);
+        const i = d3.minIndex(pts, (p) => Math.abs(x(p.week) - mx)), p = pts[i], before = pts[i - 1];
+        rule.attr('x1', x(p.week)).attr('x2', x(p.week)).attr('opacity', 1);
+        dots.attr('r', (q) => q === p ? 5.5 : q === lastPt ? 4.5 : 3.25);
+        const lines = [el('div', 'd', `Week ${p.week}${p.date ? ' · ' + md(new Date(p.date)) : ''}`)];
+        if (p.value == null) lines.push(el('div', null, 'Off this week’s chart'));
+        else {
+          lines.push(el('div', null, `Value ${fmtV(src, p.value)}${p.pos_rank ? ' · pos rank ' + p.pos_rank : ''}`));
+          if (before && before.value != null) { const c = p.value - before.value; lines.push(el('div', dir(c), `${fmtChg(src, c)} (${pct(p.value / before.value - 1)}) from Week ${before.week}`)); }
+        }
+        tip.replaceChildren(...lines);
+        const sc = box.querySelector('svg').getBoundingClientRect().width / W;
+        placeTip(box, tip, x(p.week) * sc, yOf(p) * sc);
+      })
+      .on('pointerleave', () => { tip.hidden = true; rule.attr('opacity', 0); dots.attr('r', (q) => q === lastPt ? 4.5 : 3.25); });
+  }
+
+  function drawPortfolios(box, src, rows, weeks) {
+    box.replaceChildren();
+    const W = Math.max(300, box.clientWidth), H = 300;
+    const teams = d3.group(rows, (r) => r.owner);
+    const svg = d3.select(box).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`);
+    const narrowChart = W < 560; // on a phone: names in a legend on top, values only at the line ends
+    const y = d3.scaleLinear(d3.extent(rows, (r) => r.total), [H - 26, narrowChart ? 34 : 12]).nice();
+    const yt = y.ticks(5);
+    const left = measure(svg, yt.map((t) => fmt0(t)), 11) + 10;
+    const mineName = rows.find((r) => r.mine)?.owner;
+    const lastWeek = weeks[weeks.length - 1];
+    const lastOf = (t) => teams.get(t).find((r) => r.week === lastWeek).total;
+    const leader = [...teams.keys()].sort((a, b) => lastOf(b) - lastOf(a))[0];
+    const labelled = [...new Set([mineName, leader])].filter(Boolean);
+    const endText = (t) => narrowChart ? fmtV(src, lastOf(t)) : `${t} ${fmtV(src, lastOf(t))}`;
+    const right = measure(svg, labelled.map(endText), 12) + 14;
+    if (narrowChart) {
+      let lx = left;
+      for (const t of labelled) {
+        const c = t === mineName ? dash.colors[0] : dash.colors[1];
+        svg.append('line').attr('x1', lx).attr('x2', lx + 14).attr('y1', 10).attr('y2', 10).attr('stroke', c).attr('stroke-width', 2.5).attr('stroke-linecap', 'round');
+        svg.append('text').attr('x', lx + 19).attr('y', 14).attr('font-size', 12).attr('fill', 'var(--color-fg)').text(t);
+        lx += 19 + measure(svg, [t], 12) + 16;
+      }
+    }
+    const x = d3.scaleLinear([weeks[0], lastWeek], [left + 8, W - Math.min(right, W * 0.42)]);
+    svg.selectAll('line.g').data(yt).join('line').attr('x1', left).attr('x2', x(lastWeek)).attr('y1', y).attr('y2', y).attr('stroke', 'var(--cds-chart-grid)');
+    svg.selectAll('text.y').data(yt).join('text').attr('x', left - 6).attr('y', (t) => y(t) + 4).attr('text-anchor', 'end').attr('font-size', 11).attr('fill', 'var(--color-fg-muted)').text((t) => fmt0(t));
+    svg.selectAll('text.x').data(weeks).join('text').attr('x', x).attr('y', H - 6).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', 'var(--color-fg-muted)').text((w) => (w === weeks[0] ? 'Wk ' : '') + w);
+    const line = d3.line((r) => x(r.week), (r) => y(r.total));
+    const order = [...teams.keys()].sort((a, b) => (a === mineName) - (b === mineName) || (a === leader) - (b === leader));
+    svg.append('g').selectAll('path').data(order).join('path')
+      .attr('d', (t) => line(teams.get(t))).attr('fill', 'none')
+      .attr('stroke', (t) => t === mineName ? dash.colors[0] : t === leader ? dash.colors[1] : 'var(--cds-chart-muted)')
+      .attr('stroke-width', (t) => t === mineName ? 2.5 : t === leader ? 2 : 1.25).attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round');
+    const ly = labelled.map((t) => ({ t, y: y(lastOf(t)) })).sort((a, b) => a.y - b.y);
+    if (ly.length === 2 && ly[1].y - ly[0].y < 14) { const mid = (ly[0].y + ly[1].y) / 2; ly[0].y = mid - 7; ly[1].y = mid + 7; }
+    svg.selectAll('text.end').data(ly).join('text').attr('x', x(lastWeek) + 8).attr('y', (d) => d.y + 4).attr('font-size', 12)
+      .attr('font-weight', (d) => d.t === mineName ? 600 : 400).attr('fill', (d) => d.t === mineName ? dash.colors[0] : dash.colors[1])
+      .text((d) => endText(d.t));
+    const rule = svg.append('line').attr('y1', 12).attr('y2', H - 26).attr('stroke', 'var(--cds-chart-axis)').attr('opacity', 0);
+    const tip = el('div', 'tvx-tip'); tip.hidden = true; box.append(tip);
+    svg.append('rect').attr('width', W).attr('height', H).attr('fill', 'transparent')
+      .on('pointermove', (ev) => {
+        const [mx] = d3.pointer(ev);
+        const wk = weeks[d3.minIndex(weeks, (w) => Math.abs(x(w) - mx))];
+        rule.attr('x1', x(wk)).attr('x2', x(wk)).attr('opacity', 1);
+        const at = [...teams.keys()].map((t) => ({ t, v: teams.get(t).find((r) => r.week === wk).total })).sort((a, b) => b.v - a.v);
+        tip.replaceChildren(el('div', 'd', `Week ${wk}`), ...at.map((a) => { const r = el('div', 'row' + (a.t === mineName ? ' me' : '')); r.append(el('span', null, a.t), el('span', null, fmtV(src, a.v))); return r; }));
+        const sc = box.querySelector('svg').getBoundingClientRect().width / W;
+        placeTip(box, tip, x(wk) * sc, H * sc / 2);
+      })
+      .on('pointerleave', () => { tip.hidden = true; rule.attr('opacity', 0); });
+  }
+
+  // ---------- Trade builder ----------
+  let TV = null, PHOTOS = new Map();
+  const tv = (id) => TV.get(id)?.[trade.vsrc] || 0;
+  const sideTotal = (ids) => d3.sum([...ids], tv);
+  function rosterItem(p, set) {
+    const on = set.has(p.player_id);
+    const li = el('li', on ? 'on' : ''); li.dataset.key = p.player_id;
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = on; cb.tabIndex = -1; cb.setAttribute('aria-hidden', 'true');
+    const nm = el('span', 'nm', p.name); nm.append(el('small', null, `${p.pos}${p.team ? ' · ' + p.team : ''}`));
+    const v = p[trade.vsrc];
+    li.append(cb, photoImg(PHOTOS.get(p.player_id), 'sm'), nm, el('span', 'v' + (v ? '' : ' zero'), v ? fmtV(trade.vsrc, v) : 'off chart'));
+    if (set === trade.a && trade.mode === 'teams') {
+      const kept = trade.keep.has(p.player_id);
+      const k = el('button', 'tvx-keep' + (kept ? ' on' : '')); k.type = 'button'; k.innerHTML = lockIcon(kept); li.classList.add('k');
+      k.title = kept ? 'Never trade: even trades skip him. Click to allow.' : 'Click to never trade him';
+      k.setAttribute('aria-label', (kept ? 'Allow trading ' : 'Never trade ') + p.name); k.setAttribute('aria-pressed', String(kept));
+      k.addEventListener('click', (e) => { e.stopPropagation(); kept ? trade.keep.delete(p.player_id) : trade.keep.add(p.player_id); trade.finds = null; renderTrade(); });
+      k.addEventListener('keydown', (e) => e.stopPropagation());
+      li.append(k);
+    }
+    li.tabIndex = 0; li.setAttribute('role', 'checkbox'); li.setAttribute('aria-checked', String(on));
+    const toggle = () => { on ? set.delete(p.player_id) : set.add(p.player_id); renderTrade(); };
+    li.addEventListener('click', (e) => { e.preventDefault(); toggle(); });
+    li.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
+    return li;
+  }
+  function teamSide(box, which) {
+    const key = which === 'a' ? 'teamA' : 'teamB', set = trade[which];
+    const head = el('div', 'tvx-side-head');
+    const sel = el('select'); sel.id = 'tb-team-' + which; sel.setAttribute('aria-label', which === 'a' ? 'First team' : 'Second team');
+    const other = trade[which === 'a' ? 'teamB' : 'teamA'];
+    const teams = [...new Set([...TV.values()].map((p) => p.owner))].filter((o) => o !== 'Free agent' && o !== other).sort((a, c) => a.localeCompare(c));
+    if (which === 'b') sel.append(new Option('All teams', '__all', false, trade.teamB === '__all'));
+    teams.forEach((t) => sel.append(new Option(t, t, false, t === trade[key])));
+    sel.addEventListener('change', () => { trade[key] = sel.value; set.clear(); trade.finds = null; renderTrade(); });
+    head.append(sel, el('span', 'tvx-tile-sub', `sends ${set.size} · ${fmtV(trade.vsrc, sideTotal(set))}`));
+    if (trade[key] === '__all') {
+      const total = (t) => rosterValue([...TV.values()].filter((p) => p.owner === t).map((p) => p[trade.vsrc] || 0));
+      const ul = el('ul', 'tvx-teams');
+      teams.slice().sort((a, c) => total(c) - total(a)).forEach((t) => {
+        const b = el('button'); b.type = 'button'; b.append(el('span', null, t), el('span', 'v', fmtV(trade.vsrc, total(t))));
+        b.addEventListener('click', () => { trade.teamB = t; set.clear(); trade.finds = null; renderTrade(); });
+        const li = el('li'); li.append(b); ul.append(li);
+      });
+      box.replaceChildren(head, el('div', 'tvx-empty', 'Trade ideas cover every team · pick one to build a deal by hand'), ul);
+      return;
+    }
+    const ul = el('ul', 'tvx-roster');
+    [...TV.values()].filter((p) => p.owner === trade[key]).sort((a, c) => (c[trade.vsrc] - a[trade.vsrc]) || a.name.localeCompare(c.name)).forEach((p) => ul.append(rosterItem(p, set)));
+    box.replaceChildren(head, ul);
+  }
+  function anySide(box, which) {
+    const set = trade[which], qk = 'q' + which, other = which === 'a' ? trade.b : trade.a;
+    const head = el('div', 'tvx-side-head'); head.append(el('span', 'tvx-side-title', which === 'a' ? 'Side A gives' : 'Side B gives'), el('span', 'tvx-tile-sub', `${set.size} · ${fmtV(trade.vsrc, sideTotal(set))}`));
+    const find = el('div', 'tvx-find'); const inp = el('input'); inp.type = 'search'; inp.id = 'tb-find-' + which; inp.placeholder = 'Add a player'; inp.value = trade[qk]; inp.autocomplete = 'off';
+    inp.setAttribute('aria-label', 'Add a player to ' + (which === 'a' ? 'side A' : 'side B'));
+    const sugg = el('ul', 'tvx-sugg'); sugg.hidden = true;
+    const add = (id) => { set.add(id); trade[qk] = ''; renderTrade(); setTimeout(() => document.getElementById('tb-find-' + which)?.focus(), 0); };
+    const show = () => {
+      const q = inp.value.trim().toLowerCase(); trade[qk] = inp.value;
+      if (q.length < 2) { sugg.hidden = true; return; }
+      const hits = [...TV.values()].filter((p) => !set.has(p.player_id) && !other.has(p.player_id) && p.name.toLowerCase().includes(q)).sort((a, c) => c[trade.vsrc] - a[trade.vsrc]).slice(0, 8);
+      sugg.replaceChildren(...hits.map((p) => { const li = el('li'); li.append(photoImg(PHOTOS.get(p.player_id), 'sm'), el('span', 'nm', `${p.name} · ${p.pos}`), el('span', 'v', p[trade.vsrc] ? fmtV(trade.vsrc, p[trade.vsrc]) : 'off')); li.addEventListener('mousedown', (e) => { e.preventDefault(); add(p.player_id); }); return li; }));
+      sugg.hidden = !hits.length;
+      sugg.dataset.first = hits[0]?.player_id || '';
+    };
+    inp.addEventListener('input', show); inp.addEventListener('focus', show); inp.addEventListener('blur', () => setTimeout(() => { sugg.hidden = true; }, 150));
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && sugg.dataset.first) { e.preventDefault(); add(sugg.dataset.first); } });
+    find.append(inp, sugg);
+    const chips = el('ul', 'tvx-chips');
+    [...set].map((id) => TV.get(id)).filter(Boolean).forEach((p) => {
+      const li = el('li'); const x = el('button', null, '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove ' + p.name); x.addEventListener('click', () => { set.delete(p.player_id); renderTrade(); });
+      li.append(photoImg(PHOTOS.get(p.player_id), 'sm'), el('span', 'nm', `${p.name} · ${p.pos}`), el('span', 'v', p[trade.vsrc] ? fmtV(trade.vsrc, p[trade.vsrc]) : 'off'), x);
+      chips.append(li);
+    });
+    box.replaceChildren(head, find, set.size ? chips : el('div', 'tvx-empty', 'Search to add the players this side gives.'));
+  }
+  function tradeEval(aSends, bSends, val) {
+    const sum = (ids) => ids.reduce((s, p) => s + val(p), 0);
+    const best = (ids) => ids.reduce((m, p) => (m == null || val(p) > val(m) ? p : m), null);
+    let adjA = sum(bSends), adjB = sum(aSends);
+    const vA = aSends.length ? val(best(aSends)) : 0, vB = bSends.length ? val(best(bSends)) : 0;
+    if (vB > vA) adjA += vB - vA; else if (vA > vB) adjB += vA - vB;
+    const gap = adjA - adjB;
+    return { adjA, adjB, gap, gapPct: gap / (Math.max(adjA, adjB) || 1) };
+  }
+  
+  function findEvenTrades(players, { teamA, teamB = null, src = 'consensus', lockA = [], lockB = [], keep = [], apart = [], fair = 0.15, floor = 3, maxSide = 2, limit = 6 } = {}) {
+    const val = (p) => Number(p[src]) || 0;
+    const NEED = { QB: 1, RB: 2, WR: 2, TE: 1 };
+    const rosters = new Map();
+    const roster = (t) => { if (!rosters.has(t)) rosters.set(t, players.filter((p) => p.owner === t)); return rosters.get(t); };
+    const keepSet = new Set(keep); // never-trade players: left out unless the user checked them
+    const combos = (list, locked) => {
+      const lockSet = new Set(locked);
+      const free = list.filter((p) => !lockSet.has(p.player_id) && !keepSet.has(p.player_id) && val(p) >= floor);
+      const base = list.filter((p) => lockSet.has(p.player_id));
+      if (base.length) return [base]; // the user picked exactly what this side sends
+      const out = [];
+      for (let i = 0; i < free.length; i++) {
+        out.push([free[i]]);
+        if (maxSide > 1) for (let j = i + 1; j < free.length; j++) out.push([free[i], free[j]]);
+      }
+      return out;
+    };
+    const lineupOk = (team, give, get) => {
+      const ids = new Set(give.map((p) => p.player_id));
+      const c = {};
+      for (const p of roster(team)) if (!ids.has(p.player_id)) c[p.pos] = (c[p.pos] || 0) + 1;
+      for (const p of get) c[p.pos] = (c[p.pos] || 0) + 1;
+      return Object.entries(NEED).every(([k, n]) => (c[k] || 0) >= n);
+    };
+    const others = teamB ? [teamB] : [...new Set(players.map((p) => p.owner))].filter((t) => t && t !== teamA && t !== 'Free agent');
+    const aCombos = combos(roster(teamA), lockA);
+    const found = [];
+    for (const t of others) {
+      const bCombos = combos(roster(t), teamB ? lockB : []);
+      for (const a of aCombos) for (const b of bCombos) {
+        if (Math.abs(a.length - b.length) > 1) continue;
+        if (apart.some((pair) => pair.every((id) => a.some((p) => p.player_id === id)))) continue; // e.g. Nacua and Collins: only one may go
+        const r = tradeEval(a, b, val);
+        if (Math.abs(r.gapPct) > fair) continue;
+        if (!lineupOk(teamA, a, b) || !lineupOk(t, b, a)) continue;
+        const total = r.adjA + r.adjB;
+        found.push({ teamB: t, a: a.map((p) => p.player_id), b: b.map((p) => p.player_id), ...r, total, score: total * (1 - 1.5 * Math.abs(r.gapPct)) });
+      }
+    }
+    // Bigger, closer deals first (score shrinks as the gap grows), then the ones that lean your way.
+    // Up to `limit` per team; within a team, a player you didn't pick shows up in at most two suggestions.
+    found.sort((x, y) => y.score - x.score || y.gap - x.gap);
+    const locked = new Set([...lockA, ...lockB]), uses = new Map(), per = new Map(), out = [];
+    for (const f of found) {
+      if ((per.get(f.teamB) || 0) >= limit) continue;
+      const ids = [...f.a, ...f.b].filter((id) => !locked.has(id)).map((id) => f.teamB + '|' + id);
+      if (ids.some((id) => (uses.get(id) || 0) >= 2)) continue;
+      ids.forEach((id) => uses.set(id, (uses.get(id) || 0) + 1));
+      per.set(f.teamB, (per.get(f.teamB) || 0) + 1);
+      out.push(f);
+    }
+    return out;
+  }
+
+  // Groups the finder's list by team and picks each team's lead suggestion so the same player of yours doesn't lead more
+  // than two teams' cards when that team has another option.
+  function spreadByTeam(list) {
+    const groups = new Map();
+    for (const f of list) { if (!groups.has(f.teamB)) groups.set(f.teamB, []); groups.get(f.teamB).push(f); }
+    const used = new Map(), out = [];
+    for (const [team, fs] of groups) {
+      const i = Math.max(0, fs.findIndex((f) => f.a.every((id) => (used.get(id) || 0) < 2)));
+      const [lead] = fs.splice(i, 1); fs.unshift(lead);
+      lead.a.forEach((id) => used.set(id, (used.get(id) || 0) + 1));
+      out.push({ team, list: fs });
+    }
+    return out;
+  }
+
+  // Even trades: two cards at most. With All teams the queue takes each team's best trade in turn, then their second
+  // best, and so on; × swaps a card for the next one in the queue, Refresh with nothing changed shows the next two.
+  function runFinder(rotate) {
+    if (trade.mode !== 'teams') return;
+    const teamB = trade.teamB === '__all' ? null : trade.teamB;
+    const key = JSON.stringify([trade.teamA, teamB, trade.vsrc, [...trade.a], teamB ? [...trade.b] : [], [...trade.keep]]);
+    const round = rotate && trade.finds && trade.finds.key === key ? trade.finds.round + 1 : 0;
+    const list = findEvenTrades([...TV.values()], { teamA: trade.teamA, teamB, src: trade.vsrc, lockA: [...trade.a], lockB: teamB ? [...trade.b] : [], keep: [...trade.keep], apart: trade.apart });
+    const groups = spreadByTeam(list), queue = [];
+    for (let i = 0; groups.some((g) => i < g.list.length); i++) groups.forEach((g) => { if (i < g.list.length) queue.push(g.list[i]); });
+    const n = queue.length, start = n ? (round * 2) % n : 0, shown = [];
+    for (let i = 0; i < Math.min(2, n); i++) shown.push((start + i) % n);
+    trade.finds = { key, round, queue, shown, next: start + 2, all: !teamB, src: trade.vsrc, locked: trade.a.size + (teamB ? trade.b.size : 0) };
+  }
+  function renderFinds() {
+    const box = $('#tb-finds');
+    if (trade.mode === 'teams' && !trade.finds) runFinder();
+    const F = trade.finds;
+    box.hidden = !F || trade.mode !== 'teams';
+    if (box.hidden) { box.replaceChildren(); return; }
+    const S = F.src, name = (id) => TV.get(id);
+    const kept = [...trade.keep].map(name).filter((p) => p && p.owner === trade.teamA && !trade.a.has(p.player_id)).map((p) => p.name);
+    const top = el('div', 'tvx-finds-top');
+    top.append(el('span', 'tvx-tile-label', F.all ? 'Even trades · every team' : 'Even trades · ' + trade.teamB));
+    const refresh = el('button', 'tvx-btn tvx-btn-go', 'Refresh even trades'); refresh.type = 'button'; refresh.id = 'tb-find';
+    refresh.addEventListener('click', () => { runFinder(true); renderFinds(); });
+    top.append(refresh);
+    const head = el('div', 'tvx-finds-head');
+    const bit = (k, v) => { const s = el('span'); s.append(el('b', null, k + ' '), document.createTextNode(v)); return s; };
+    if (F.queue.length) {
+      head.append(bit('For', trade.teamA), bit('Values', SRC_NAME[S]));
+      if (F.locked) head.append(bit('Built around', 'your checked players'));
+      if (kept.length) head.append(bit('Never trading', kept.join(', ')));
+    } else head.append(el('span', null, `No trades within 15% for ${trade.teamA}${F.locked ? ' with those players' : ''} · try another team, value source, or uncheck players`));
+    const nextIdx = () => {
+      for (let k = 0; k < F.queue.length; k++) { const i = (F.next + k) % F.queue.length; if (!F.shown.includes(i)) { F.next = i + 1; return i; } }
+      return -1;
+    };
+    const cards = F.shown.map((idx, slot) => {
+      const f = F.queue[idx];
+      const card = el('div', 'tvx-find-card');
+      const x = el('button', 'x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Show a different trade');
+      x.addEventListener('click', () => { const i = nextIdx(); if (i >= 0) F.shown[slot] = i; else F.shown.splice(slot, 1); renderFinds(); });
+      const side = (label, ids) => {
+        const d = el('div', 'tvx-find-side'); d.append(el('span', 'lbl', label));
+        ids.map(name).filter(Boolean).forEach((p) => { const r = el('div', 'tvx-find-row'); r.append(photoImg(PHOTOS.get(p.player_id), 'sm'), el('span', null, `${p.name} · ${p.pos}`), el('span', 'v', fmtV(S, p[S]))); d.append(r); });
+        return d;
+      };
+      const pa = Math.abs(f.gapPct * 100), even = pa < 0.5;
+      const win = even ? 'Dead even' : `${f.gap > 0 ? 'You win' : f.teamB + ' wins'} by ${pa.toFixed(1)}%`;
+      const ttl = el('div', 'tvx-find-top'); ttl.append(el('span', 'tvx-find-team', f.teamB), el('span', 'tvx-pill ' + (even ? '' : f.gap > 0 ? 'up' : 'down'), win));
+      const body = el('div', 'tvx-find-body'); body.append(side('You give', f.a), side('You get', f.b));
+      const load = el('button', 'tvx-btn', 'Load'); load.type = 'button';
+      load.addEventListener('click', () => { trade.teamB = f.teamB; trade.a = new Set(f.a); trade.b = new Set(f.b); renderTrade(); $('#tb-result').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+      const foot = el('div', 'tvx-find-foot'); foot.append(el('span', 'tvx-tile-sub', `${fmtV(S, f.adjA)} vs ${fmtV(S, f.adjB)} · ${pa <= 5 ? 'fair' : 'uneven'}`), load);
+      card.append(x, ttl, body, foot);
+      return card;
+    });
+    box.replaceChildren(top, head, ...cards);
+  }
+
+  function evaluate() {
+    const aSends = [...trade.a], bSends = [...trade.b];
+    const gotA = d3.sum(bSends, tv), gotB = d3.sum(aSends, tv);
+    const top = (ids) => ids.reduce((m, id) => m == null || tv(id) > tv(m) ? id : m, null);
+    const topA = top(aSends), topB = top(bSends), vA = topA ? tv(topA) : 0, vB = topB ? tv(topB) : 0;
+    let adjA = gotA, adjB = gotB; const notes = [];
+    // WalterPicks best-player bonus: whoever gets the deal's best player adds the gap to the best player it sends
+    if (vA !== vB) {
+      const toA = vB > vA, amt = Math.abs(vB - vA), best = toA ? topB : topA, other = toA ? topA : topB;
+      if (toA) adjA += amt; else adjB += amt;
+      notes.push({ side: toA ? 'a' : 'b', text: `Best player bonus (${TV.get(best).name} over ${other ? TV.get(other).name : 'nothing'})`, amt });
+    }
+    const gap = adjA - adjB, base = Math.max(adjA, adjB) || 1;
+    return { gotA, gotB, adjA, adjB, gap, gapPct: gap / base, notes };
+  }
+  function renderTrade() {
+    if (!TV) return;
+    const teamsAll = [...new Set([...TV.values()].map((p) => p.owner))].filter((o) => o !== 'Free agent');
+    if (!teamsAll.includes(trade.teamA)) trade.teamA = teamsAll[0];
+    if (trade.teamB !== '__all' && (!trade.teamB || !teamsAll.includes(trade.teamB) || trade.teamB === trade.teamA)) trade.teamB = teamsAll.includes('Jake and Josh') && trade.teamA !== 'Jake and Josh' ? 'Jake and Josh' : teamsAll.find((t) => t !== trade.teamA);
+    $('#tb-src').value = trade.vsrc;
+    if (trade.mode === 'teams') { teamSide($('#side-a'), 'a'); teamSide($('#side-b'), 'b'); } else { anySide($('#side-a'), 'a'); anySide($('#side-b'), 'b'); }
+    const nameA = trade.mode === 'teams' ? trade.teamA : 'Side A', nameB = trade.mode === 'teams' ? (trade.teamB === '__all' ? 'All teams' : trade.teamB) : 'Side B';
+    renderFinds();
+    const box = $('#tb-result');
+    if (!trade.a.size && !trade.b.size) {
+      box.replaceChildren(el('div', 'tvx-tile-label', 'Trade evaluation'), el('p', 'tvx-verdict', 'Pick players to start'), el('p', 'tvx-note', trade.mode === 'teams' ? 'Check the players each team sends.' : 'Add the players each side gives.'));
+      return;
+    }
+    const r = evaluate(), S = trade.vsrc;
+    const absPct = Math.abs(r.gapPct * 100);
+    const verdict = !trade.a.size || !trade.b.size ? 'One side is empty' : absPct <= 5 ? 'Fair trade' : `${r.gap > 0 ? nameA : nameB} wins by ${absPct.toFixed(1)}%`;
+    // two bars side by side: value received, with the best-player bonus stacked on top
+    const scale = el('div', 'tvx-bars'), peak = Math.max(r.adjA, r.adjB) || 1;
+    [[nameA, r.gotA, r.adjA, 'var(--cds-chart-categorical-1)'], [nameB, r.gotB, r.adjB, 'var(--cds-chart-categorical-2)']].forEach(([nm, got, tot, c]) => {
+      const col = el('div', 'col'); col.style.setProperty('--c', c);
+      const well = el('div', 'well'), bonus = tot - got;
+      if (bonus > 0) { const s = el('div', 'seg bonus'); s.style.height = (bonus / peak * 100) + '%'; s.title = `Best player bonus ${fmtChg(S, bonus)}`; well.append(s); }
+      const b = el('div', 'seg base'); b.style.height = (got / peak * 100) + '%'; b.title = `Gets ${fmtV(S, got)}`; well.append(b);
+      col.append(el('div', 'tot', fmtV(S, tot)), well, el('div', 'nm', nm), el('div', 'sub', `gets ${fmtV(S, got)}${bonus > 0 ? ` · bonus ${fmtChg(S, bonus)}` : ''}`));
+      scale.append(col);
+    });
+    const lab = el('div', 'tvx-bars-key'); const k1 = el('span'), k2 = el('span'); k1.append(el('span', 'sw'), document.createTextNode('Value received')); k2.append(el('span', 'sw bonus'), document.createTextNode('Best player bonus')); lab.append(k1, k2);
+    const tb = el('table', 'tvx-ledger'); const body = el('tbody'); tb.append(body);
+    const tr = (cells, cls) => { const t = el('tr', cls || ''); cells.forEach((c) => t.append(el('td', null, c))); body.append(t); };
+    tr([`${nameA} gets`, fmtV(S, r.gotA)]);
+    r.notes.filter((n) => n.side === 'a').forEach((n) => tr([n.text, fmtChg(S, n.amt)], 'adj'));
+    tr([`${nameA} total`, fmtV(S, r.adjA)], 'tot');
+    tr([`${nameB} gets`, fmtV(S, r.gotB)]);
+    r.notes.filter((n) => n.side === 'b').forEach((n) => tr([n.text, fmtChg(S, n.amt)], 'adj'));
+    tr([`${nameB} total`, fmtV(S, r.adjB)], 'tot');
+    const kids = [el('div', 'tvx-tile-label', `Trade evaluation · ${SRC_NAME[S]} values`), el('p', 'tvx-verdict', verdict), scale, lab, tb];
+    if (trade.mode === 'teams' && trade.teamB !== '__all') {
+      const players = [...TV.values()];
+      const rosterTotal = (t, add = new Set(), drop = new Set()) => rosterValue(players.filter((p) => (p.owner === t && !drop.has(p.player_id)) || add.has(p.player_id)).map((p) => p[S] || 0));
+      const posCount = (t, add, drop) => { const c = {}; players.filter((p) => (p.owner === t && !drop.has(p.player_id)) || add.has(p.player_id)).forEach((p) => { c[p.pos] = (c[p.pos] || 0) + 1; }); return ['QB', 'RB', 'WR', 'TE'].map((k) => `${k} ${c[k] || 0}`).join(' · '); };
+      const imp = el('div', 'tvx-impact');
+      const line = (t, got, gave, add, drop) => {
+        const d = el('div'); const before = rosterTotal(t), after = rosterTotal(t, add, drop), net = add.size - drop.size;
+        d.append(el('b', null, t), document.createTextNode(`: roster value ${fmtV(S, before)} → ${fmtV(S, after)} (${fmtChg(S, after - before)}). After: ${posCount(t, add, drop)}.${net ? ` Needs ${net > 0 ? net + ' open roster spot' + (net > 1 ? 's' : '') : 'no drop; frees ' + -net + ' spot' + (-net > 1 ? 's' : '')}.` : ''}`));
+        return d;
+      };
+      imp.append(line(trade.teamA, r.gotA, r.gotB, trade.b, trade.a), line(trade.teamB, r.gotB, r.gotA, trade.a, trade.b));
+      kids.push(imp);
+    }
+    const kn = el('ul', 'tvx-notes'); kn.append(el('li', null, 'Bonus = best player in the deal minus the best player his new team sends'), el('li', null, 'Fair = within 5%')); kids.push(kn);
+    box.replaceChildren(...kids);
+  }
+
+  // ---------- Main render ----------
+  const ids = ['waivers', 'espn_weekly', 'espn_player', 'espn_grid', 'board', 'series', 'players', 'weekly', 'portfolio_weeks', 'portfolios', 'headline', 'trade_values'];
+  function render() {
+    const d = Object.fromEntries(ids.map((id) => [id, dash.data(id)]));
+    const ok = ids.every((id) => d[id].status === 'ok');
+    const failed = ids.some((id) => ['error', 'missing'].includes(d[id].status));
+    if (ok || failed) root.querySelectorAll('.dash-skeleton').forEach((n) => n.classList.remove('dash-skeleton'));
+    if (!ok) {
+      ['#board-grid tbody', '.tvx-grid tbody', '.tvx-port tbody'].forEach((s) => $(s).replaceChildren());
+      if (failed) { const tr = el('tr'); const td = el('td', 'tvx-fail', 'Failed to load'); td.colSpan = 10; tr.append(td); $('#board-grid tbody').append(tr); }
+      return;
+    }
+    const pts = state.src === 'espn', src = vsrc(), F = (k) => src + '_' + k;
+    // Your team: everything that says "mine" follows the header dropdown
+    const teamsList = [...new Set(d.players.data.map((p) => p.owner))].filter((o) => o !== 'Free agent').sort((a, c) => a.localeCompare(c));
+    if (!teamsList.includes(ME)) ME = teamsList.includes(HOME) ? HOME : teamsList[0];
+    const meSel = $('#tvx-me');
+    if (meSel.options.length !== teamsList.length) meSel.replaceChildren(...teamsList.map((t) => new Option(t, t)));
+    meSel.value = ME;
+    [d.board.data, d.portfolios.data, d.portfolio_weeks.data].forEach((rows) => rows.forEach((r) => { r.mine = r.owner === ME; }));
+    for (const r of d.waivers.data) { const w = r.lowest?.[ME]; r.upgrade = w ? Math.round((r.value - w.value) * 10) / 10 : null; r.my_worst = w ? w.name : null; }
+    $('.tvx-apart-note').hidden = !(APART[ME] || []).length;
+    const board = d.board.data.filter((r) => r[F('status')] !== 'none' || r.rsj_now != null);
+    const myP = d.portfolios.data.find((t) => t.source === src && t.mine) || {};
+    const head = { ...d.headline.data.find((h) => h.source === src), my_now: myP.now_total ?? null, my_pct: myP.change_pct ?? null, my_week_pct: myP.week_pct ?? null };
+    PHOTOS = new Map(d.players.data.map((p) => [p.player_id, p.photo]));
+    TV = new Map(d.trade_values.data.map((p) => [p.player_id, p]));
+    const ser = d.series.data.filter((r) => r.source === src);
+    const weeks = [...new Set(ser.map((r) => r.week))].sort((a, b) => a - b);
+    const dates = new Map(ser.map((r) => [r.week, r.date]));
+    const hist = new Map();
+    for (const r of ser) { if (!hist.has(r.player_id)) hist.set(r.player_id, new Map()); hist.get(r.player_id).set(r.week, r); }
+
+    // Header + tiles
+    root.querySelectorAll('[data-source="headline"]').forEach((n) => {
+      n.dataset.where = 'source=' + src;
+      const f = n.dataset.field, v = head[f];
+      n.textContent = /_pct$/.test(f) ? pct(v) : /_chg$/.test(f) ? fmtChg(src, v) : f === 'my_now' ? fmtV(src, v) : (v ?? '—');
+    });
+    [['.tvx-my-pct', head.my_pct], ['.tvx-my-wk', head.my_week_pct]].forEach(([s, v]) => root.querySelectorAll(s).forEach((n) => { n.classList.remove('up', 'down'); if (dir(v)) n.classList.add(dir(v)); }));
+    flipStart(board, src);
+    $('.tvx-src-note').replaceChildren(...[
+      `Values out of 100 (${src === 'consensus' ? 'consensus' : SRC_NAME[src]}) · ESPN ROS = rest-of-season points and position rank`,
+      'Click a player to see his charts',
+    ].map((t) => el('li', null, t)));
+
+    // Owner options
+    const owners = [...new Set(board.map((r) => r.owner))].filter((o) => o !== 'Free agent').sort((a, c) => a.localeCompare(c));
+    if (ownerEl.options.length !== owners.length + 3) ownerEl.replaceChildren(new Option('All teams + free agents', ''), new Option('', '__mine'), new Option('Free agents', 'Free agent'), ...owners.map((o) => new Option(o, o)));
+    ownerEl.options[1].text = `My roster (${ME})`;
+    ownerEl.value = state.owner;
+
+    // Ticker
+    const tape = board.filter((r) => r[F('week_chg')]).sort((a, c) => Math.abs(c[F('week_chg')]) - Math.abs(a[F('week_chg')])).slice(0, 40);
+    const mk = () => tape.map((r) => { const s = el('span', 'tvx-tick'); s.append(el('span', 'sym', symbolFor(r)), el('span', 'px', fmtV(src, r[F('now')])), el('span', dir(r[F('week_chg')]), (r[F('week_chg')] > 0 ? '▲ ' : '▼ ') + fmtChg(src, r[F('week_chg')]))); return s; });
+    const track = $('.tvx-tape-track'); track.replaceChildren(...mk(), ...mk()); track.classList.add('go');
+
+    // Board table
+    root.querySelectorAll('#board-grid th[data-k]').forEach((th) => { th.dataset.field = F(th.dataset.k); });
+    const lab = { start: 'Wk 1', now: 'Now', chg: 'Change' }, pre = src === 'cbs' ? 'CBS ' : '';
+    root.querySelectorAll('#board-grid th[data-k]').forEach((th) => { if (lab[th.dataset.k]) th.querySelector('button').textContent = pre + lab[th.dataset.k]; });
+    const rows = sorted(filtered(board));
+    const shown = narrow() && !state.all ? rows.slice(0, 25) : rows; // phones list the top 25 until Show all
+    const more = $('#board-more'); more.hidden = !narrow() || rows.length <= 25; more.textContent = state.all ? 'Show top 25' : `Show all ${rows.length} players`;
+    root.querySelectorAll('#board-grid th[data-sort]').forEach((th) => { if (th.dataset.sort === state.sort) th.setAttribute('aria-sort', state.desc ? 'descending' : 'ascending'); else th.removeAttribute('aria-sort'); });
+    $('.tvx-count').textContent = `${rows.length} of ${board.length} players`;
+    if (!state.sel || !board.some((r) => r.player_id === state.sel)) {
+      const myTop = board.filter((r) => r.mine && r[F('now')] != null).sort((a, c) => c[F('now')] - a[F('now')])[0];
+      state.sel = (myTop || board[0]).player_id;
+    }
+    $('#board-grid tbody').replaceChildren(...shown.map((r) => {
+      const st = r[F('status')];
+      const tr = el('tr', [r.mine ? 'mine' : '', r.player_id === state.sel ? 'sel' : '', st === 'new' ? 'is-new' : '', st === 'off' ? 'is-off' : ''].filter(Boolean).join(' '));
+      tr.dataset.key = r.player_id;
+      const name = el('td', 'l'); const pc = el('div', 'tvx-pcell'); const who = el('span'); who.append(el('span', 'tvx-pname', r.name), el('span', 'tvx-psub', `${r.pos} · ${r.owner}`)); pc.append(photoImg(PHOTOS.get(r.player_id), 'sm'), who); name.append(pc);
+      const pill = (v, txt, cls) => { const td = el('td', cls || ''); td.append(el('span', 'tvx-pill ' + dir(v), txt)); return td; };
+      const val = (k, cls) => { const v = r[F(k)]; const td = el('td', cls || '', v == null ? '' : fmtV(src, v)); if (v == null) td.classList.add('tvx-below'); return td; };
+      const mv = el('td', 'c1'); mv.append(el('span', 'tvx-rk ' + dir(r[F('rank_move')]), r[F('rank_move')] == null ? '—' : (r[F('rank_move')] > 0 ? '+' : '') + r[F('rank_move')]));
+      const sp = el('td', 'c1'); sp.append(sparkline(hist.get(r.player_id) || new Map(), weeks, r[F('chg')] == null ? null : r[F('chg')] >= 0));
+      tr.append(name,
+        el('td', 'grp c4', r.consensus == null ? '—' : r.consensus.toFixed(1)), el('td', 'c2 tvx-muted', r.espn_ros_pts == null ? '—' : `${r.espn_ros_pts.toFixed(0)} · ${r.espn_pos_rank}`),
+        val('start', 'c2 grp tvx-muted'), val('now'),
+        pill(r[F('chg')], fmtChg(src, r[F('chg')])), pill(r[F('chg_pct')], r[F('start')] >= 2 ? pct(r[F('chg_pct')]) : 'new', 'c3'), pill(r[F('week_pct')], pct(r[F('week_pct')]), 'c2'),
+        mv, sp);
+      return tr;
+    }));
+
+    // Quote panel
+    const q = board.find((r) => r.player_id === state.sel);
+    const qp = $('#quote');
+    const qimg = $('img', qp); const qph = PHOTOS.get(q.player_id); qimg.hidden = !qph; if (qph) qimg.src = qph;
+    qp.querySelectorAll('[data-source="board"]').forEach((n) => {
+      n.dataset.where = 'player_id=' + encodeURIComponent(q.player_id);
+      if (n.dataset.k) n.dataset.field = F(n.dataset.k);
+      const f = n.dataset.field, v = q[f];
+      n.textContent = /_pct$/.test(f) ? pct(v) : f === 'espn_ros_pts' ? (v == null ? '—' : v.toFixed(1) + ' pts') : f === 'rsj_now' ? (v == null ? '—' : fmt0(v)) : ['consensus', 'espn_value', 'fc_value'].includes(f) ? (v == null ? '—' : v.toFixed(1)) : /_(rank|rank0)$/.test(f) ? String(v ?? '—') : typeof v === 'number' ? fmtV(src, v) : (v ?? '—');
+    });
+    $('.tvx-q-chg').className = 'tvx-pill tvx-q-chg ' + dir(q[F('chg_pct')]);
+    const st = q[F('status')];
+    $('.tvx-quote-meta').textContent = `${symbolFor(q)} · ${q.pos} · ${q.team || 'FA'}${st === 'new' ? ' · not on the Week 1 chart' : st === 'off' ? ' · off the current chart' : st === 'none' ? ` · not on any ${SRC_NAME[src]} chart` : ''}`;
+    const qbox = $('#quote-chart'); qbox.dataset.where = `source=${src}&player_id=${encodeURIComponent(q.player_id)}`;
+    const EW = new Map(); for (const r of d.espn_weekly.data) { if (!EW.has(r.player_id)) EW.set(r.player_id, []); EW.get(r.player_id).push(r); }
+    const EP = new Map(d.espn_player.data.map((r) => [r.player_id, r]));
+    $('.tvx-vsrc-name').textContent = SRC_NAME[src];
+    drawQuote(qbox, src, hist.get(q.player_id) || new Map(), weeks, dates);
+    const pbox = $('#quote-pts'); pbox.dataset.where = 'player_id=' + encodeURIComponent(q.player_id);
+    drawPoints(pbox, (EW.get(q.player_id) || []).slice().sort((a, c) => a.week - c.week));
+    const ep = EP.get(q.player_id);
+    qp.querySelectorAll('[data-source="espn_player"]').forEach((n) => {
+      n.dataset.where = 'player_id=' + encodeURIComponent(q.player_id);
+      const f = n.dataset.field, v = ep ? ep[f] : null;
+      n.textContent = v == null ? '—' : f === 'diff_pct' ? pct(v) : f === 'diff' ? (v > 0 ? '+' : '') + v.toFixed(1) : f === 'games_left' ? String(v) : v.toFixed(1);
+      n.classList.remove('up', 'down'); if (f === 'diff' || f === 'diff_pct') { if (dir(v)) n.classList.add(dir(v)); }
+    });
+
+    // Points by week (ESPN view)
+    $('#points').hidden = !pts; $('#weekly').hidden = pts;
+    if (pts) {
+      const grid = new Map(d.espn_grid.data.map((r) => [r.player_id, r]));
+      const prow = shown.filter((r) => grid.has(r.player_id));
+      const pw = Array.from({ length: 13 }, (_, i) => i + 1);
+      const ph = el('tr'); const pn = el('th', 'l', 'Player'); pn.dataset.field = 'name'; ph.append(pn);
+      for (const w of pw) { const th = el('th', null, 'Wk ' + w); th.dataset.field = 'wk' + w; ph.append(th); }
+      $('.tvx-pgrid thead').replaceChildren(ph);
+      $('.tvx-pgrid tbody').replaceChildren(...prow.map((r) => {
+        const g = grid.get(r.player_id);
+        const tr = el('tr', r.player_id === state.sel ? 'sel' : ''); tr.dataset.key = r.player_id; tr.dataset.pid = r.player_id;
+        tr.append(el('td', 'l', r.name));
+        for (const w of pw) {
+          const v = g['wk' + w], e = g['wk' + w + '_p'], f = g['wk' + w + '_f'];
+          const s = g['wk' + w + '_s'];
+          const td = el('td', f ? 'tvx-proj' : null, v == null ? (s === 'bye' ? 'B' : '✕') : v.toFixed(1));
+          if (v == null) td.classList.add(s === 'bye' ? 'tvx-bye' : 'tvx-out');
+          if (v == null) td.classList.add('tvx-muted');
+          else if (!f && e != null) {
+            const c = v - e, a = Math.min(1, Math.abs(c) / 12);
+            td.style.background = `color-mix(in srgb, ${c >= 0 ? 'var(--color-ok)' : 'var(--color-bad)'} ${Math.round(10 + a * 32)}%, transparent)`;
+          }
+          tr.append(td);
+        }
+        return tr;
+      }));
+    }
+
+    // Week-by-week grid
+    const wkRows = new Map(d.weekly.data.filter((r) => r.source === src).map((r) => [r.player_id, r]));
+    const gridRows = shown.filter((r) => wkRows.has(r.player_id));
+    const gh = el('tr'); const nameTh = el('th', 'l', 'Player'); nameTh.dataset.field = 'name'; gh.append(nameTh);
+    for (const w of weeks) { const th = el('th', null, 'Wk ' + w); th.dataset.field = 'wk' + w; gh.append(th); }
+    $('#weekly .tvx-grid thead').replaceChildren(gh);
+    $('#weekly .tvx-grid tbody').replaceChildren(...gridRows.map((r) => {
+      const row = wkRows.get(r.player_id);
+      const tr = el('tr', r.player_id === state.sel ? 'sel' : ''); tr.dataset.key = row.key; tr.dataset.pid = r.player_id;
+      tr.append(el('td', 'l', r.name));
+      weeks.forEach((w, i) => {
+        const v = row['wk' + w], pv = i ? row['wk' + weeks[i - 1]] : null;
+        const td = el('td', null, v == null ? '' : fmtV(src, v));
+        if (v == null) td.classList.add('tvx-below');
+        else if (pv != null && v !== pv) {
+          const c = v / pv - 1, a = Math.min(1, Math.abs(c) / 0.6);
+          td.style.background = `color-mix(in srgb, ${c > 0 ? 'var(--color-ok)' : 'var(--color-bad)'} ${Math.round(10 + a * 32)}%, transparent)`;
+        }
+        tr.append(td);
+      });
+      return tr;
+    }));
+
+    // Movers (by value added)
+    const moved = rows.filter((r) => r[F('chg')] != null).sort((a, c) => c[F('chg')] - a[F('chg')]);
+    const moverList = (list) => list.map((r) => {
+      const li = el('li'); li.dataset.key = r.player_id;
+      const who = el('div', 'who'); who.append(el('div', null, r.name), el('div', null, `${r.pos} · ${r.owner} · Wk 1 ${fmtV(src, r[F('start')])} → ${fmtV(src, r[F('now')])}`));
+      li.append(photoImg(PHOTOS.get(r.player_id)), who, el('span', 'tvx-muted', r[F('start')] >= 2 ? pct(r[F('chg_pct')]) : 'new'), el('span', 'tvx-pill ' + dir(r[F('chg')]), fmtChg(src, r[F('chg')])));
+      return li;
+    });
+    $('#gainers').replaceChildren(...moverList(moved.slice(0, 10).filter((r) => r[F('chg')] > 0)));
+    $('#losers').replaceChildren(...moverList(moved.slice(-10).reverse().filter((r) => r[F('chg')] < 0)));
+
+    // Portfolios
+    $('#portfolio-chart').dataset.where = 'source=' + src;
+    drawPortfolios($('#portfolio-chart'), src, d.portfolio_weeks.data.filter((r) => r.source === src), weeks);
+    $('.tvx-port tbody').replaceChildren(...d.portfolios.data.filter((t) => t.source === src).map((t) => {
+      const tr = el('tr', t.mine ? 'mine' : ''); tr.dataset.key = t.key;
+      const pill = (v, cls) => { const td = el('td', cls || null); td.append(el('span', 'tvx-pill ' + dir(v), pct(v))); return td; };
+      tr.append(el('td', 'l', t.owner), el('td', 'opt tvx-muted', t.record), el('td', 'opt tvx-muted', fmtV(src, t.start_total)), el('td', null, fmtV(src, t.now_total)), pill(t.change_pct), pill(t.week_pct, 'wk'));
+      return tr;
+    }));
+
+    const off = board.filter((r) => r[F('status')] === 'off' && r[F('start')] != null).map((r) => r.name);
+    $('.tvx-off-line').hidden = !off.length;
+    $('.tvx-off').textContent = off.join(', ');
+
+    // Waiver wire
+    const wrows = d.waivers.data.filter((r) => (!wv.pos || r.pos === wv.pos) && (!wv.up || r.upgrade > 0));
+    const sgn = (v) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '-' : '') + Math.abs(v).toFixed(1);
+    $('.tvx-wv tbody').replaceChildren(...(wrows.length ? wrows.map((r) => {
+      const tr = el('tr', TV.has(r.player_id) ? '' : 'thin'); tr.dataset.key = r.player_id;
+      const nm = el('td', 'l'); const pc = el('div', 'tvx-pcell'); pc.append(photoImg(PHOTOS.get(r.player_id), 'sm'), el('span', 'tvx-pname', r.name)); nm.append(pc);
+      const up = el('td'); up.append(el('span', 'tvx-pill ' + dir(r.upgrade), sgn(r.upgrade)));
+      tr.append(el('td', 'tvx-muted', String(r.rank)), nm, el('td', 'l', r.pos), el('td', 'l opt', r.team), el('td', 'l opt', r.status),
+        el('td', null, r.value.toFixed(1)), el('td', 'opt ' + dir(r.week_chg), sgn(r.week_chg)), el('td', 'opt', String(r.n_sources)),
+        el('td', 'opt', r.ros_ppg == null ? '—' : r.ros_ppg.toFixed(1)), up, el('td', 'l opt2 tvx-muted', r.my_worst || '—'));
+      return tr;
+    }) : [(() => { const tr = el('tr'); const td = el('td', 'tvx-muted', 'No waiver players match.'); td.colSpan = 11; tr.append(td); return tr; })()]));
+
+    renderTrade();
+    if (!state.drawn) { state.drawn = true; root.querySelectorAll('.tvx-tiles .tvx-card, #trade, #board, #weekly, #movers, #portfolios').forEach((n) => n.classList.add('tvx-fade')); }
+  }
+
+  dash.onData(render);
+  const named = location.hash && document.getElementById(location.hash.slice(1));
+  if (named) setTimeout(() => named.scrollIntoView(), 0);
+})();
+</script>
+
+<p class="site-foot">Data updated Oct 30, 2026.</p>
+</main>
+</body>
+</html>
