@@ -600,6 +600,7 @@
           <li>Sources agree closely: rank correlation 0.88–0.94 on the top 150</li>
           <li>Earlier weeks move by the average change of sources covering that week</li>
           <li>Weeks 1–4 use CBS + ESPN only; RSJ and FantasyCalc enter from Week 4</li>
+          <li>Week N charts come out before Week N's games, so they reflect games through Week N−1</li>
         </ul>
       </div>
       <div>
@@ -623,7 +624,8 @@
         <ul class="tvx-notes">
           <li>Rest-of-season projections in this league's own scoring</li>
           <li>Value = projected points per game minus a replacement line at his position (bye weeks don't count)</li>
-          <li>Replacement = halfway between the last starter and the waiver line · at or below it = 0</li>
+          <li>Replacement = halfway between the last starter and a fixed waiver line (QB 20th, RB 56th, WR 60th, TE 21st)</li>
+          <li>Value fades in smoothly around replacement instead of dropping straight to 0</li>
         </ul>
       </div>
       <div>
@@ -705,13 +707,17 @@ dash.calc('consensus', {
     const start = { QB: 12, RB: 24, WR: 24, TE: 12 };
     const flexPool = ['RB', 'WR', 'TE'].flatMap((k) => (byPos[k] || []).slice(start[k]).map((v) => [k, v])).sort((a, b) => b[1] - a[1]).slice(0, 12);
     for (const [k] of flexPool) start[k]++;
+    // Waiver line at a fixed rank (this league's roster depth), so roster churn and pull size don't move it; above the
+    // replacement line the value fades in smoothly (softplus, 1 point per game wide) instead of cutting off at 0.
+    const WAIVER_RANK = { QB: 20, RB: 56, WR: 60, TE: 21 }, SOFT = 1;
     const out = new Map();
     for (const [id, v] of ppg) {
       const k = pos.get(id), list = byPos[k] || [];
       const lastStarter = list[Math.min(start[k], list.length) - 1] ?? 0;
-      const waiver = list[Math.min(rostered.filter((p) => p.pos === k).length, list.length - 1)] ?? 0;
-      const par = v - (lastStarter + waiver) / 2;
-      if (par > 0) out.set(id, par);
+      const waiver = list[Math.min(WAIVER_RANK[k], list.length) - 1] ?? 0;
+      const x = (v - (lastStarter + waiver) / 2) / SOFT;
+      const par = SOFT * (x > 20 ? x : Math.log1p(Math.exp(x)));
+      if (par > 0.05) out.set(id, par);
     }
     return out;
   }
