@@ -389,7 +389,7 @@
         <table class="tvx-table" id="board-grid" data-source="board" data-row-key="player_id">
           <thead><tr>
             <th class="l" data-field="name" data-sort="name"><button type="button">Player</button></th>
-            <th class="grp c4" data-field="consensus" data-sort="consensus"><button type="button">Value /100</button></th>
+            <th class="grp c4" data-field="consensus" data-sort="consensus"><button type="button">Value</button></th>
             <th class="c2" data-field="espn_ros_pts" data-sort="espn_ros_pts"><button type="button">ESPN ROS</button></th>
             <th class="c2 grp" data-k="start" data-sort="start"><button type="button">Wk 1</button></th>
             <th data-k="now" data-sort="now"><button type="button">Now</button></th>
@@ -443,9 +443,9 @@
             <div class="r"><span class="k">Season low</span><span class="v" data-source="board" data-k="low">—</span></div>
             <div class="r"><span class="k">Position rank now</span><span class="v" data-source="board" data-k="rank">—</span></div>
             <div class="r"><span class="k">Position rank Week 1</span><span class="v" data-source="board" data-k="rank0">—</span></div>
-            <div class="r"><span class="k">Value /100 (consensus)</span><span class="v" data-source="board" data-field="consensus">—</span></div>
-            <div class="r"><span class="k">ESPN value /100</span><span class="v" data-source="board" data-field="espn_value">—</span></div>
-            <div class="r"><span class="k">FantasyCalc value /100</span><span class="v" data-source="board" data-field="fc_value">—</span></div>
+            <div class="r"><span class="k">Value (consensus)</span><span class="v" data-source="board" data-field="consensus">—</span></div>
+            <div class="r"><span class="k">ESPN value</span><span class="v" data-source="board" data-field="espn_value">—</span></div>
+            <div class="r"><span class="k">FantasyCalc value</span><span class="v" data-source="board" data-field="fc_value">—</span></div>
             <div class="r"><span class="k">Fantasy team</span><span class="v" data-source="board" data-field="owner">—</span></div>
         </div>
         <div class="tvx-qsec g2">
@@ -495,7 +495,7 @@
         <button type="button" data-mode="teams" aria-pressed="true">TEAM VS TEAM</button><button type="button" data-mode="any" aria-pressed="false">ANY PLAYERS</button>
       </div>
       <label class="tvx-srcpick" for="tb-src">Values
-        <select id="tb-src"><option value="consensus">Consensus out of 100</option><option value="rsj">RSJ chart</option><option value="fc">FantasyCalc trades</option><option value="espn">ESPN projections (league scoring)</option></select>
+        <select id="tb-src"><option value="consensus">Consensus value</option><option value="rsj">RSJ chart</option><option value="fc">FantasyCalc trades</option><option value="espn">ESPN projections (league scoring)</option></select>
       </label>
       <button type="button" class="tvx-btn" id="tb-clear">Clear trade</button>
     </div>
@@ -593,9 +593,10 @@
       <div>
         <h3>Consensus value (default)</h3>
         <ul class="tvx-notes">
-          <li>Each source ranks players: CBS, RSJ, FantasyCalc, ESPN points above replacement</li>
-          <li>Each rank is read off one shared curve (average of the four, #1 = 100), then averaged</li>
-          <li>Ranking first stops one source's steep or flat scale from dominating</li>
+          <li>Four sources: CBS, RSJ, FantasyCalc, ESPN points per game above replacement</li>
+          <li>100 = the best player at the start of the season; values can go above 100</li>
+          <li>Each source is read against its own first chart on one shared curve, frozen there, then averaged</li>
+          <li>A player moves only when his own numbers move: if the #1 player drops, nobody else rises</li>
           <li>Sources agree closely: rank correlation 0.88–0.94 on the top 150</li>
           <li>Earlier weeks move by the average change of sources covering that week</li>
           <li>Weeks 1–4 use CBS + ESPN only; RSJ and FantasyCalc enter from Week 4</li>
@@ -613,7 +614,7 @@
         <h3>RSJ and FantasyCalc</h3>
         <ul class="tvx-notes">
           <li>RSJ: built for 12-team, full-PPR, 1QB; only Week 4 (Sep 29) and Week 8 saved</li>
-          <li>RSJ Week 4 restated to the Week 8 scale by overall rank</li>
+          <li>RSJ re-scales each chart (Week 8 runs ~1.6x Week 4), so each chart is put on Week 4's scale by its top-24 total</li>
           <li>FantasyCalc: real redraft trades in 12-team PPR 1QB leagues; board shows its 30-day change</li>
         </ul>
       </div>
@@ -621,14 +622,14 @@
         <h3>ESPN</h3>
         <ul class="tvx-notes">
           <li>Rest-of-season projections in this league's own scoring</li>
-          <li>Value = projected points minus a replacement line at his position</li>
+          <li>Value = projected points per game minus a replacement line at his position (bye weeks don't count)</li>
           <li>Replacement = halfway between the last starter and the waiver line · at or below it = 0</li>
         </ul>
       </div>
       <div>
         <h3>Trade builder</h3>
         <ul class="tvx-notes">
-          <li>All values out of 100 (each source's #1 = 100)</li>
+          <li>All values on the same scale: 100 = the best player at the start of the season</li>
           <li>Each side's total = value received + best-player bonus (WalterPicks rule)</li>
           <li>Rule fit to four WalterPicks results from this league (e.g. CMC for Nacua: +3.3)</li>
           <li>Fair = within 5%</li>
@@ -660,7 +661,7 @@ dash.calc('rsj_restated', {
 
 dash.calc('consensus', {
   title: 'Consensus trade value',
-  description: 'One value out of 100 per player and week. Each source (CBS, RSJ, FantasyCalc, ESPN projected points above replacement) is ranked, each rank is read off one shared value curve (the average of the four sources’ curves, #1 = 100), and the readings are averaged. Earlier weeks move by the average weekly change of the sources that cover that week.',
+  description: 'One value per player and week on a fixed scale: 100 = the best player at the start of the season. Each source (CBS, RSJ, FantasyCalc, ESPN projected points per game above replacement) is read against its own first snapshot (CBS and ESPN Week 1, RSJ and FantasyCalc Week 4) on one shared value curve frozen at those snapshots, and the readings are averaged. A player moves only when his own source values move. Earlier weeks move by the average weekly change of the sources that cover that week.',
   inputs: ['cbs_history', 'rsj_history', 'fc_trend', 'espn_weekly', 'players', 'waiver_pool'],
   fn: (cbs_history, rsj_history, fc_trend, espn_weekly, players, waiver_pool) => {
     function consensusFn(cbs_history, rsj_history, fc_trend, espn_weekly, players) {
@@ -673,6 +674,11 @@ dash.calc('consensus', {
   const snap = { cbs: {}, rsj: {}, fc: {}, espn: {} };
   for (const r of cbs_history) (snap.cbs[r.week] ??= new Map()).set(r.player_id, Number(r.value));
   for (const r of rsj_history) (snap.rsj[r.week] ??= new Map()).set(r.player_id, Number(r.value));
+  // RSJ re-scales its whole chart between releases (Week 8 runs about 1.6x Week 4 from #1 to #50), so each RSJ chart is
+  // put on its first chart's scale by the total of its top 24 values. CBS, FantasyCalc and ESPN keep a steady scale.
+  const top24 = (m) => [...m.values()].sort((a, b) => b - a).slice(0, 24).reduce((s, x) => s + x, 0);
+  const rsjWeeks = Object.keys(snap.rsj).map(Number).sort((a, b) => a - b);
+  for (const w of rsjWeeks.slice(1)) { const k = top24(snap.rsj[rsjWeeks[0]]) / top24(snap.rsj[w]); for (const [id, v] of snap.rsj[w]) snap.rsj[w].set(id, v * k); }
   snap.fc[NOW] = new Map(); snap.fc[FC_THEN] = new Map();
   for (const r of fc_trend) {
     const v = Number(r.fc_value); if (!(v > 0)) continue;
@@ -709,23 +715,36 @@ dash.calc('consensus', {
     return out;
   }
 
-  // Shared curve: each source's sorted values normalized to its #1, averaged rank by rank, scaled to 100.
+  // Shared curve, frozen at each source's first snapshot: sorted values normalized to that snapshot's #1, averaged rank
+  // by rank, scaled to 100. 100 = the best player at the start of the season.
   const ranked = (m) => [...m].sort((a, b) => b[1] - a[1]);
-  const curves = Object.keys(snap).map((s) => ranked(snap[s][NOW] || new Map()).map(([, v], i, a) => v / a[0][1]));
+  const ref = {};
+  for (const s in snap) { const w0 = Math.min(...Object.keys(snap[s]).map(Number)); ref[s] = ranked(snap[s][w0] || new Map()).map(([, v]) => v); }
+  const curves = Object.values(ref).filter((r) => r.length).map((r) => r.map((v) => v / r[0]));
   const len = Math.max(...curves.map((c) => c.length));
   const curve = Array.from({ length: len }, (_, i) => {
     const vals = curves.map((c) => c[i] ?? 0);
     return 100 * vals.reduce((s, x) => s + x, 0) / vals.length;
   });
-  const at = (rank) => curve[Math.min(rank, curve.length) - 1] ?? 0;
-  // Read a snapshot onto the curve. A player the source has seen but left off this snapshot reads one past its last rank.
+  // Read a raw value against the source's frozen snapshot: between two listed values, interpolate their curve values;
+  // above the snapshot's #1 or below its last player, scale in proportion.
+  const read = (s, v) => {
+    const r = ref[s], n = r.length;
+    if (!n || !(v > 0)) return 0;
+    if (v >= r[0]) return curve[0] * v / r[0];
+    if (v <= r[n - 1]) return curve[n - 1] * v / r[n - 1];
+    let i = 0; while (r[i + 1] > v) i++;
+    const f = r[i] === r[i + 1] ? 0 : (r[i] - v) / (r[i] - r[i + 1]);
+    return curve[i] + f * (curve[i + 1] - curve[i]);
+  };
+  // A player the source has seen but left off this snapshot reads as its last listed player (ESPN: 0).
   const mapped = {};
   for (const s in snap) {
     const seen = new Set(Object.values(snap[s]).flatMap((m) => [...m.keys()]));
     mapped[s] = {};
     for (const w in snap[s]) {
-      const r = ranked(snap[s][w]), mm = new Map(r.map(([id], i) => [id, at(i + 1)]));
-      const tail = at(r.length + 1);
+      const m = snap[s][w], mm = new Map([...m].map(([id, v]) => [id, read(s, v)]));
+      const tail = m.size ? read(s, Math.min(...m.values())) : 0;
       for (const id of seen) if (!mm.has(id)) mm.set(id, s === 'espn' ? 0 : tail);
       mapped[s][w] = mm;
     }
@@ -833,7 +852,7 @@ dash.calc('espn_grid', {
 
 dash.calc('series', {
   title: 'Weekly values',
-  description: 'Weekly values tagged by source: the consensus value out of 100, and CBS weekly chart values (full-PPR column; QBs 1QB 4-pt TD).',
+  description: 'Weekly values tagged by source: the consensus value (100 = best player at the start of the season), and CBS weekly chart values (full-PPR column; QBs 1QB 4-pt TD).',
   inputs: ['cbs_history', 'consensus'],
   fn: (cbs_history, consensus) => [
     ...consensus.map((r) => ({ source: 'consensus', player_id: r.player_id, week: r.week, date: cbs_history.find((c) => Number(c.week) === r.week)?.date, value: r.value, pos_rank: r.pos_rank })),
@@ -843,10 +862,12 @@ dash.calc('series', {
 
 dash.calc('board', {
   title: 'Player board',
-  description: 'One row per charted player. For the weekly source (cbs_): Week 1, last week and current value, change, % changes, season high and low, position ranks, status. Plus RSJ value and change, FantasyCalc trend, and current values out of 100: consensus, ESPN rest-of-season projected points, position rank and value, FantasyCalc value.',
-  inputs: ['series', 'rsj_restated', 'players', 'fc_trend', 'ros_values'],
-  fn: (series, rsj_restated, players, fc_trend, ros_values) => {
+  description: 'One row per charted player. For the weekly source (cbs_): Week 1, last week and current value, change, % changes, season high and low, position ranks, status. Plus RSJ value and change, FantasyCalc trend, and current values on the fixed scale (100 = best player at the start of the season): consensus, ESPN value, FantasyCalc value; and ESPN rest-of-season projected points and position rank.',
+  inputs: ['series', 'rsj_restated', 'players', 'fc_trend', 'ros_values', 'consensus'],
+  fn: (series, rsj_restated, players, fc_trend, ros_values, consensus) => {
     const ros = new Map(ros_values.map((r) => [r.player_id, r]));
+    const lastWk = Math.max(...consensus.map((r) => r.week));
+    const part = new Map(consensus.filter((r) => r.week === lastWk).map((r) => [r.player_id, r]));
     const num = (x) => x == null || x === '' ? null : Number(x);
     const per = {};
     for (const src of ['consensus', 'cbs']) {
@@ -889,7 +910,8 @@ dash.calc('board', {
       row.rsj_change_pct = rs && rn ? rn.value / rs.restated - 1 : null;
       row.fc_trend30_pct = f && f.fc_trend30_pct != null ? Number(f.fc_trend30_pct) : null;
       const v = ros.get(p.player_id) || {};
-      Object.assign(row, { consensus: row.consensus_now, espn_ros_pts: num(v.espn_ros_pts), espn_pos_rank: v.espn_pos_rank || null, espn_value: num(v.espn_100), fc_value: num(v.fc_100) });
+      const c = part.get(p.player_id) || {};
+      Object.assign(row, { consensus: row.consensus_now, espn_ros_pts: num(v.espn_ros_pts), espn_pos_rank: v.espn_pos_rank || null, espn_value: num(c.espn), fc_value: num(c.fc) });
       return row;
     });
   },
@@ -990,17 +1012,17 @@ dash.calc('headline', {
 
 dash.calc('trade_values', {
   title: 'Current trade values',
-  description: 'Every charted, rostered or FantasyCalc player with current values out of 100 (each source’s #1 player = 100; 12-team, full PPR, 1QB): RSJ, FantasyCalc, ESPN projected points above replacement, and their average. 0 when a source doesn’t list the player.',
+  description: 'Every charted, rostered or FantasyCalc player with current values on the fixed scale (100 = the best player at the start of the season; 12-team, full PPR, 1QB): RSJ, FantasyCalc, ESPN projected points per game above replacement, and the consensus. 0 when a source doesn’t list the player.',
   inputs: ['players', 'ros_values', 'consensus'],
   fn: (players, ros_values, consensus) => {
     const cn = new Map(); const last = Math.max(...consensus.map((r) => r.week));
-    for (const r of consensus) if (r.week === last) cn.set(r.player_id, r.value);
+    for (const r of consensus) if (r.week === last) cn.set(r.player_id, r);
     const v = new Map(ros_values.map((r) => [r.player_id, r]));
     const num = (x) => x == null || x === '' ? 0 : Number(x);
     return players.map((p) => {
-      const r = v.get(p.player_id) || {};
+      const r = v.get(p.player_id) || {}, c = cn.get(p.player_id) || {};
       return { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, owner: p.owner, owner_id: Number(p.owner_id) || 0,
-        rsj: num(r.rsj_100), fc: num(r.fc_100), espn: num(r.espn_100), consensus: cn.get(p.player_id) ?? 0,
+        rsj: num(c.rsj), fc: num(c.fc), espn: num(c.espn), consensus: c.value ?? 0,
         espn_ros_pts: r.espn_ros_pts == null ? null : Number(r.espn_ros_pts) };
     });
   },
@@ -1011,7 +1033,7 @@ dash.calc('trade_values', {
   const $ = (s, el = root) => el.querySelector(s);
   const fmt0 = d3.format(',');
   const SRC_NAME = { cbs: 'CBS', rsj: 'RSJ', fc: 'FantasyCalc', espn: 'ESPN projection', consensus: 'Consensus' };
-  const SCALE100 = new Set(['consensus', 'rsj', 'fc', 'espn']); // trade builder sources, out of 100
+  const SCALE100 = new Set(['consensus', 'rsj', 'fc', 'espn']); // trade builder sources, on the fixed scale
   const fmtV = (src, v) => v == null ? '—' : SCALE100.has(src) ? v.toFixed(1) : fmt0(Math.round(v));
   const fmtChg = (src, v) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '-' : '') + fmtV(src, Math.abs(v));
   const pct = (v) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '-' : '') + Math.abs(v * 100).toFixed(1) + '%';
@@ -1722,7 +1744,7 @@ dash.calc('trade_values', {
     [['.tvx-my-pct', head.my_pct], ['.tvx-my-wk', head.my_week_pct]].forEach(([s, v]) => root.querySelectorAll(s).forEach((n) => { n.classList.remove('up', 'down'); if (dir(v)) n.classList.add(dir(v)); }));
     flipStart(board, src);
     $('.tvx-src-note').replaceChildren(...[
-      `Values out of 100 (${src === 'consensus' ? 'consensus' : SRC_NAME[src]}) · ESPN ROS = rest-of-season points and position rank`,
+      `Values: 100 = best player at the start of the season (${src === 'consensus' ? 'consensus' : SRC_NAME[src]}) · ESPN ROS = rest-of-season points and position rank`,
       'Click a player to see his charts',
     ].map((t) => el('li', null, t)));
 
