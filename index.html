@@ -665,7 +665,8 @@ dash.calc('consensus', {
   inputs: ['cbs_history', 'rsj_history', 'fc_trend', 'espn_weekly', 'players', 'waiver_pool'],
   fn: (cbs_history, rsj_history, fc_trend, espn_weekly, players, waiver_pool) => {
     function consensusFn(cbs_history, rsj_history, fc_trend, espn_weekly, players) {
-  const WEEKS = [...new Set(cbs_history.map((r) => Number(r.week)))].sort((a, b) => a - b);
+  const cbsWeeks = cbs_history.map((r) => Number(r.week)), firstWeek = Math.min(...cbsWeeks);
+  const WEEKS = [...new Set([...cbsWeeks, ...rsj_history.map((r) => Number(r.week)).filter((w) => w > firstWeek)])].sort((a, b) => a - b);
   const NOW = WEEKS[WEEKS.length - 1], FC_THEN = 4; // FantasyCalc's 30-day change reaches back to about Week 4
   const pos = new Map(players.map((p) => [p.player_id, p.pos]));
   const rostered = players.filter((p) => p.owner && p.owner !== 'Free agent');
@@ -750,19 +751,24 @@ dash.calc('consensus', {
     }
   }
   const get = (s, w, id) => mapped[s][w]?.get(id);
-  // Weekly step of a source between w-1 and w: direct for weekly sources, an even share of Week 4 → 8 for RSJ and FC.
+  const snapWeeks = Object.fromEntries(Object.keys(mapped).map((s) => [s, Object.keys(mapped[s]).map(Number).sort((a, b) => a - b)]));
+  // Weekly step of a source between w-1 and w: direct for weekly sources (none for a week CBS hasn't charted), an even
+  // share of the change between consecutive snapshots for RSJ and FantasyCalc.
   const step = (s, w, id) => {
     if (s === 'cbs' || s === 'espn') { const a = get(s, w - 1, id), b = get(s, w, id); return a == null || b == null ? null : b - a; }
-    const from = s === 'fc' ? FC_THEN : 4, a = get(s, from, id), b = get(s, NOW, id);
-    return w > from && w <= NOW && a != null && b != null ? (b - a) / (NOW - from) : null;
+    const ws = snapWeeks[s], to = ws.find((x) => x >= w), from = [...ws].reverse().find((x) => x < w);
+    if (to == null || from == null) return null;
+    const a = get(s, from, id), b = get(s, to, id);
+    return a == null || b == null ? null : (b - a) / (to - from);
   };
+  const latest = (s, id) => { const ws = snapWeeks[s]; return ws.length ? get(s, ws[ws.length - 1], id) : undefined; };
 
   const ids = new Set(Object.values(mapped).flatMap((o) => Object.values(o).flatMap((m) => [...m.keys()])));
   const out = [];
   const r1 = (x) => Math.round(x * 10) / 10;
   for (const id of ids) {
     if (!pos.get(id)) continue;
-    const parts = { cbs: get('cbs', NOW, id), rsj: get('rsj', NOW, id), fc: get('fc', NOW, id), espn: get('espn', NOW, id) };
+    const parts = { cbs: latest('cbs', id), rsj: latest('rsj', id), fc: latest('fc', id), espn: latest('espn', id) };
     const have = Object.values(parts).filter((v) => v != null);
     if (!have.length) continue;
     let v = have.reduce((s, x) => s + x, 0) / have.length;
@@ -853,9 +859,9 @@ dash.calc('espn_grid', {
 dash.calc('series', {
   title: 'Weekly values',
   description: 'Weekly values tagged by source: the consensus value (100 = best player at the start of the season), and CBS weekly chart values (full-PPR column; QBs 1QB 4-pt TD).',
-  inputs: ['cbs_history', 'consensus'],
-  fn: (cbs_history, consensus) => [
-    ...consensus.map((r) => ({ source: 'consensus', player_id: r.player_id, week: r.week, date: cbs_history.find((c) => Number(c.week) === r.week)?.date, value: r.value, pos_rank: r.pos_rank })),
+  inputs: ['cbs_history', 'rsj_history', 'consensus'],
+  fn: (cbs_history, rsj_history, consensus) => [
+    ...consensus.map((r) => ({ source: 'consensus', player_id: r.player_id, week: r.week, date: (cbs_history.find((c) => Number(c.week) === r.week) || rsj_history.find((c) => Number(c.week) === r.week))?.date, value: r.value, pos_rank: r.pos_rank })),
     ...cbs_history.map((r) => ({ source: 'cbs', player_id: r.player_id, week: Number(r.week), date: r.date, value: Number(r.value), pos_rank: Number(r.pos_rank) })),
   ],
 });
