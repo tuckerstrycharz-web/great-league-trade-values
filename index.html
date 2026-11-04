@@ -237,6 +237,7 @@
   .tvx-table tbody tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--color-fg); }
   .tvx-pcell { display: flex; align-items: center; gap: var(--cds-gap-sm); }
   .tvx-pname { font-weight: 600; }
+  .tvx-outtag { display: block; font-size: var(--cds-font-size-caption); font-weight: 600; color: var(--color-bad); white-space: nowrap; }
   tr.is-new .tvx-pcell::after, tr.is-off .tvx-pcell::after { font-family: var(--tvx-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--color-border-line); font-weight: 400; }
   tr.is-new .tvx-pcell::after { content: "New"; color: var(--color-fg-muted); }
   tr.is-off .tvx-pcell::after { content: "Off chart"; color: var(--tvx-down); }
@@ -635,6 +636,7 @@
           <li>Each side's total = value received + best-player bonus (WalterPicks rule)</li>
           <li>Rule fit to four WalterPicks results from this league (e.g. CMC for Nacua: +3.3)</li>
           <li>Fair = within 5%</li>
+          <li>Out for the season (checked against injury news each week): value 0, and never in the tiles, headline, ticker or movers</li>
         </ul>
       </div>
     </div>
@@ -663,10 +665,10 @@ dash.calc('rsj_restated', {
 
 dash.calc('consensus', {
   title: 'Consensus trade value',
-  description: 'One value per player and week on a fixed scale: 100 = the best player at the start of the season. Each source (CBS, RSJ, FantasyCalc, ESPN projected points per game above replacement) is read against its own first snapshot (CBS and ESPN Week 1, RSJ and FantasyCalc Week 4) on one shared value curve frozen at those snapshots, and the readings are averaged. A player moves only when his own source values move. Earlier weeks move by the average weekly change of the sources that cover that week.',
+  description: 'One value per player and week on a fixed scale: 100 = the best player at the start of the season. Each source (CBS, RSJ, FantasyCalc, ESPN projected points per game above replacement) is read against its own first snapshot (CBS and ESPN Week 1, RSJ and FantasyCalc Week 4) on one shared value curve frozen at those snapshots, and the readings are averaged. A player moves only when his own source values move. Earlier weeks move by the average weekly change of the sources that cover that week. Players out for the season are worth 0 now in every source.',
   inputs: ['cbs_history', 'rsj_history', 'fc_trend', 'espn_weekly', 'players', 'waiver_pool'],
   fn: (cbs_history, rsj_history, fc_trend, espn_weekly, players, waiver_pool) => {
-    function consensusFn(cbs_history, rsj_history, fc_trend, espn_weekly, players) {
+    function consensusFn(cbs_history, rsj_history, fc_trend, espn_weekly, players, done = new Set()) {
   const cbsWeeks = cbs_history.map((r) => Number(r.week)), firstWeek = Math.min(...cbsWeeks);
   const WEEKS = [...new Set([...cbsWeeks, ...rsj_history.map((r) => Number(r.week)).filter((w) => w > firstWeek)])].sort((a, b) => a - b);
   const NOW = WEEKS[WEEKS.length - 1], FC_THEN = 4; // FantasyCalc's 30-day change reaches back to about Week 4
@@ -784,7 +786,9 @@ dash.calc('consensus', {
       if (steps.length) v -= steps.reduce((s, x) => s + x, 0) / steps.length;
       vals[w - 1] = Math.max(0, v);
     }
-    const spread = have.length > 1 ? Math.max(...have) - Math.min(...have) : null;
+    // Out for the season: worth nothing now, in every source; earlier weeks keep their history
+    if (done.has(id)) { vals[NOW] = 0; for (const s in parts) if (parts[s] != null) parts[s] = 0; }
+    const spread = have.length > 1 && !done.has(id) ? Math.max(...have) - Math.min(...have) : null;
     for (const w of WEEKS) out.push({ player_id: id, week: w, value: r1(vals[w]), n_sources: have.length,
       cbs: w === NOW && parts.cbs != null ? r1(parts.cbs) : null, rsj: w === NOW && parts.rsj != null ? r1(parts.rsj) : null,
       fc: w === NOW && parts.fc != null ? r1(parts.fc) : null, espn: w === NOW && parts.espn != null ? r1(parts.espn) : null,
@@ -797,7 +801,8 @@ dash.calc('consensus', {
 }
     const known = new Set(players.map((p) => p.player_id));
     const extra = waiver_pool.filter((w) => !known.has(w.player_id)).map((w) => ({ player_id: w.player_id, name: w.name, pos: w.pos, team: w.team, owner: 'Free agent' }));
-    return consensusFn(cbs_history, rsj_history, fc_trend, espn_weekly, players.concat(extra));
+    const done = new Set(players.concat(waiver_pool).filter((p) => p.out_for_season).map((p) => p.player_id));
+    return consensusFn(cbs_history, rsj_history, fc_trend, espn_weekly, players.concat(extra), done);
   },
 });
 
@@ -819,7 +824,7 @@ dash.calc('waivers', {
       if (!worst[p.pos] || v < worst[p.pos].value) worst[p.pos] = { name: p.name, value: v };
     }
     return waiver_pool.map((w) => {
-      const c = now.get(w.player_id); if (!c) return null;
+      const c = now.get(w.player_id); if (!c || w.out_for_season) return null;
       const mine = worst[w.pos];
       return { player_id: w.player_id, name: w.name, pos: w.pos, team: w.team, status: w.espn_status === 'WAIVERS' ? 'Waivers' : 'Free agent',
         value: c.value, week_chg: prev.has(w.player_id) ? Math.round((c.value - prev.get(w.player_id)) * 10) / 10 : null, n_sources: c.n_sources,
@@ -865,11 +870,15 @@ dash.calc('espn_grid', {
 dash.calc('series', {
   title: 'Weekly values',
   description: 'Weekly values tagged by source: the consensus value (100 = best player at the start of the season), and CBS weekly chart values (full-PPR column; QBs 1QB 4-pt TD).',
-  inputs: ['cbs_history', 'rsj_history', 'consensus'],
-  fn: (cbs_history, rsj_history, consensus) => [
-    ...consensus.map((r) => ({ source: 'consensus', player_id: r.player_id, week: r.week, date: (cbs_history.find((c) => Number(c.week) === r.week) || rsj_history.find((c) => Number(c.week) === r.week))?.date, value: r.value, pos_rank: r.pos_rank })),
-    ...cbs_history.map((r) => ({ source: 'cbs', player_id: r.player_id, week: Number(r.week), date: r.date, value: Number(r.value), pos_rank: Number(r.pos_rank) })),
-  ],
+  inputs: ['cbs_history', 'rsj_history', 'consensus', 'players'],
+  fn: (cbs_history, rsj_history, consensus, players) => {
+    const out = new Set(players.filter((p) => p.out_for_season).map((p) => p.player_id)), cbsNow = Math.max(...cbs_history.map((r) => Number(r.week)));
+    return [
+      ...consensus.map((r) => ({ source: 'consensus', player_id: r.player_id, week: r.week, date: (cbs_history.find((c) => Number(c.week) === r.week) || rsj_history.find((c) => Number(c.week) === r.week))?.date, value: r.value, pos_rank: r.pos_rank })),
+      // out for the season: 0 on the latest CBS chart too
+      ...cbs_history.map((r) => ({ source: 'cbs', player_id: r.player_id, week: Number(r.week), date: r.date, value: out.has(r.player_id) && Number(r.week) === cbsNow ? 0 : Number(r.value), pos_rank: Number(r.pos_rank) })),
+    ];
+  },
 });
 
 dash.calc('board', {
@@ -894,7 +903,7 @@ dash.calc('board', {
     for (const r of rsj_restated) { if (!rsj.has(r.player_id)) rsj.set(r.player_id, new Map()); rsj.get(r.player_id).set(r.week, r); }
     const fc = new Map(fc_trend.map((r) => [r.player_id, r]));
     return players.filter((p) => p.charted === true || p.charted === 'true').map((p) => {
-      const row = { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, owner: p.owner, mine: p.mine === true || p.mine === 'true' };
+      const row = { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, owner: p.owner, mine: p.mine === true || p.mine === 'true', out: p.out_for_season === true };
       for (const src of ['consensus', 'cbs']) {
         const { by, first, prev, last } = per[src];
         const h = by.get(p.player_id) || new Map();
@@ -918,7 +927,7 @@ dash.calc('board', {
       const r = rsj.get(p.player_id) || new Map();
       const rs = r.get(rw[0]), rn = r.get(rw[rw.length - 1]);
       const f = fc.get(p.player_id);
-      row.rsj_now = rn ? rn.value : null;
+      row.rsj_now = rn ? (row.out ? 0 : rn.value) : null;
       row.rsj_change_pct = rs && rn ? rn.value / rs.restated - 1 : null;
       row.fc_trend30_pct = f && f.fc_trend30_pct != null ? Number(f.fc_trend30_pct) : null;
       const v = ros.get(p.player_id) || {};
@@ -998,7 +1007,7 @@ dash.calc('portfolios', {
 
 dash.calc('headline', {
   title: 'Headline figures',
-  description: 'Per source: chart dates, biggest value gain and loss since Week 1 and this week (players on both charts), and my roster’s totals.',
+  description: 'Per source: chart dates, biggest value gain and loss since Week 1 and this week (players on both charts, not out for the season), and my roster’s totals.',
   inputs: ['board', 'portfolios', 'series'],
   fn: (board, portfolios, series) => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1006,8 +1015,8 @@ dash.calc('headline', {
       const rows = series.filter((r) => r.source === src);
       const weeks = [...new Set(rows.map((r) => r.week))].sort((a, b) => a - b);
       const label = (w) => { const d = rows.find((r) => r.week === w).date; return `Week ${w} (${months[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8, 10))})`; };
-      const season = board.filter((r) => r[src + '_chg'] != null).sort((a, b) => b[src + '_chg'] - a[src + '_chg']);
-      const week = board.filter((r) => r[src + '_week_chg'] != null).sort((a, b) => b[src + '_week_chg'] - a[src + '_week_chg']);
+      const season = board.filter((r) => r[src + '_chg'] != null && !r.out).sort((a, b) => b[src + '_chg'] - a[src + '_chg']);
+      const week = board.filter((r) => r[src + '_week_chg'] != null && !r.out).sort((a, b) => b[src + '_week_chg'] - a[src + '_week_chg']);
       const mine = portfolios.find((t) => t.source === src && t.mine) || {};
       const g = season[0], l = season[season.length - 1], wg = week[0], wl = week[week.length - 1];
       return {
@@ -1033,7 +1042,7 @@ dash.calc('trade_values', {
     const num = (x) => x == null || x === '' ? 0 : Number(x);
     return players.map((p) => {
       const r = v.get(p.player_id) || {}, c = cn.get(p.player_id) || {};
-      return { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, owner: p.owner, owner_id: Number(p.owner_id) || 0,
+      return { player_id: p.player_id, name: p.name, pos: p.pos, team: p.team, owner: p.owner, owner_id: Number(p.owner_id) || 0, out: p.out_for_season === true,
         rsj: num(c.rsj), fc: num(c.fc), espn: num(c.espn), consensus: c.value ?? 0,
         espn_ros_pts: r.espn_ros_pts == null ? null : Number(r.espn_ros_pts) };
     });
@@ -1084,8 +1093,8 @@ dash.calc('trade_values', {
   };
   const flipStart = (board, src) => {
     FLIP.src = src;
-    // key movers: the 16 biggest moves in value points, among players worth at least 5
-    const live = board.filter((r) => r[src + '_now'] >= 5);
+    // key movers: the 16 biggest moves in value points, among players worth at least 5 (never one out for the season)
+    const live = board.filter((r) => r[src + '_now'] >= 5 && !r.out);
     const top = (rows, k) => rows.filter((r) => r[k] != null).sort((a, b) => Math.abs(b[k]) - Math.abs(a[k])).slice(0, 16);
     FLIP.pools.season = top(live.filter((r) => r[src + '_start'] >= 5), src + '_chg');
     FLIP.pools.week = top(live, src + '_week_chg');
@@ -1408,7 +1417,7 @@ dash.calc('trade_values', {
     const cb = el('input'); cb.type = 'checkbox'; cb.checked = on; cb.tabIndex = -1; cb.setAttribute('aria-hidden', 'true');
     const nm = el('span', 'nm', p.name); nm.append(el('small', null, `${p.pos}${p.team ? ' · ' + p.team : ''}`));
     const v = p[trade.vsrc];
-    li.append(cb, photoImg(PHOTOS.get(p.player_id), 'sm'), nm, el('span', 'v' + (v ? '' : ' zero'), v ? fmtV(trade.vsrc, v) : 'off chart'));
+    li.append(cb, photoImg(PHOTOS.get(p.player_id), 'sm'), nm, el('span', 'v' + (v ? '' : ' zero'), v ? fmtV(trade.vsrc, v) : p.out ? 'out for season' : 'off chart'));
     if (set === trade.a && trade.mode === 'teams') {
       const kept = trade.keep.has(p.player_id);
       const k = el('button', 'tvx-keep' + (kept ? ' on' : '')); k.type = 'button'; k.innerHTML = lockIcon(kept); li.classList.add('k');
@@ -1481,7 +1490,7 @@ dash.calc('trade_values', {
       const q = inp.value.trim().toLowerCase(); trade[qk] = inp.value;
       if (q.length < 2) { sugg.hidden = true; return; }
       const hits = [...TV.values()].filter((p) => !set.has(p.player_id) && !other.has(p.player_id) && p.name.toLowerCase().includes(q)).sort((a, c) => c[trade.vsrc] - a[trade.vsrc]).slice(0, 8);
-      sugg.replaceChildren(...hits.map((p) => { const li = el('li'); li.append(photoImg(PHOTOS.get(p.player_id), 'sm'), el('span', 'nm', `${p.name} · ${p.pos}`), el('span', 'v', p[trade.vsrc] ? fmtV(trade.vsrc, p[trade.vsrc]) : 'off')); li.addEventListener('mousedown', (e) => { e.preventDefault(); add(p.player_id); }); return li; }));
+      sugg.replaceChildren(...hits.map((p) => { const li = el('li'); li.append(photoImg(PHOTOS.get(p.player_id), 'sm'), el('span', 'nm', `${p.name} · ${p.pos}`), el('span', 'v', p[trade.vsrc] ? fmtV(trade.vsrc, p[trade.vsrc]) : p.out ? 'out' : 'off')); li.addEventListener('mousedown', (e) => { e.preventDefault(); add(p.player_id); }); return li; }));
       sugg.hidden = !hits.length;
       sugg.dataset.first = hits[0]?.player_id || '';
     };
@@ -1491,7 +1500,7 @@ dash.calc('trade_values', {
     const chips = el('ul', 'tvx-chips');
     [...set].map((id) => TV.get(id)).filter(Boolean).forEach((p) => {
       const li = el('li'); const x = el('button', null, '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove ' + p.name); x.addEventListener('click', () => { set.delete(p.player_id); renderTrade(); });
-      li.append(photoImg(PHOTOS.get(p.player_id), 'sm'), el('span', 'nm', `${p.name} · ${p.pos}`), el('span', 'v', p[trade.vsrc] ? fmtV(trade.vsrc, p[trade.vsrc]) : 'off'), x);
+      li.append(photoImg(PHOTOS.get(p.player_id), 'sm'), el('span', 'nm', `${p.name} · ${p.pos}`), el('span', 'v', p[trade.vsrc] ? fmtV(trade.vsrc, p[trade.vsrc]) : p.out ? 'out' : 'off'), x);
       chips.append(li);
     });
     box.replaceChildren(head, find, set.size ? chips : el('div', 'tvx-empty', 'Search to add the players this side gives.'));
@@ -1527,7 +1536,7 @@ dash.calc('trade_values', {
     const lineupOk = (team, give, get) => {
       const ids = new Set(give.map((p) => p.player_id));
       const c = {};
-      for (const p of roster(team)) if (!ids.has(p.player_id)) c[p.pos] = (c[p.pos] || 0) + 1;
+      for (const p of roster(team)) if (!ids.has(p.player_id) && !p.out) c[p.pos] = (c[p.pos] || 0) + 1;
       for (const p of get) c[p.pos] = (c[p.pos] || 0) + 1;
       return Object.entries(NEED).every(([k, n]) => (c[k] || 0) >= n);
     };
@@ -1767,7 +1776,7 @@ dash.calc('trade_values', {
     ownerEl.value = state.owner;
 
     // Ticker
-    const tape = board.filter((r) => r[F('week_chg')]).sort((a, c) => Math.abs(c[F('week_chg')]) - Math.abs(a[F('week_chg')])).slice(0, 40);
+    const tape = board.filter((r) => r[F('week_chg')] && !r.out).sort((a, c) => Math.abs(c[F('week_chg')]) - Math.abs(a[F('week_chg')])).slice(0, 40);
     const mk = () => tape.map((r) => { const s = el('span', 'tvx-tick'); s.append(el('span', 'sym', symbolFor(r)), el('span', 'px', fmtV(src, r[F('now')])), el('span', dir(r[F('week_chg')]), (r[F('week_chg')] > 0 ? '▲ ' : '▼ ') + fmtChg(src, r[F('week_chg')]))); return s; });
     const track = $('.tvx-tape-track'); track.replaceChildren(...mk(), ...mk()); track.classList.add('go');
 
@@ -1788,7 +1797,7 @@ dash.calc('trade_values', {
       const st = r[F('status')];
       const tr = el('tr', [r.mine ? 'mine' : '', r.player_id === state.sel ? 'sel' : '', st === 'new' ? 'is-new' : '', st === 'off' ? 'is-off' : ''].filter(Boolean).join(' '));
       tr.dataset.key = r.player_id;
-      const name = el('td', 'l'); const pc = el('div', 'tvx-pcell'); const who = el('span'); who.append(el('span', 'tvx-pname', r.name), el('span', 'tvx-psub', `${r.pos} · ${r.owner}`)); pc.append(photoImg(PHOTOS.get(r.player_id), 'sm'), who); name.append(pc);
+      const name = el('td', 'l'); const pc = el('div', 'tvx-pcell'); const who = el('span'); who.append(el('span', 'tvx-pname', r.name), el('span', 'tvx-psub', `${r.pos} · ${r.owner}`)); if (r.out) who.append(el('span', 'tvx-outtag', 'Out for season')); pc.append(photoImg(PHOTOS.get(r.player_id), 'sm'), who); name.append(pc);
       const pill = (v, txt, cls) => { const td = el('td', cls || ''); td.append(el('span', 'tvx-pill ' + dir(v), txt)); return td; };
       const val = (k, cls) => { const v = r[F(k)]; const td = el('td', cls || '', v == null ? '' : fmtV(src, v)); if (v == null) td.classList.add('tvx-below'); return td; };
       const mv = el('td', 'c1'); mv.append(el('span', 'tvx-rk ' + dir(r[F('rank_move')]), r[F('rank_move')] == null ? '—' : (r[F('rank_move')] > 0 ? '+' : '') + r[F('rank_move')]));
@@ -1813,7 +1822,7 @@ dash.calc('trade_values', {
     });
     $('.tvx-q-chg').className = 'tvx-pill tvx-q-chg ' + dir(q[F('chg_pct')]);
     const st = q[F('status')];
-    $('.tvx-quote-meta').textContent = `${symbolFor(q)} · ${q.pos} · ${q.team || 'FA'}${st === 'new' ? ' · not on the Week 1 chart' : st === 'off' ? ' · off the current chart' : st === 'none' ? ` · not on any ${SRC_NAME[src]} chart` : ''}`;
+    $('.tvx-quote-meta').textContent = `${symbolFor(q)} · ${q.pos} · ${q.team || 'FA'}${q.out ? ' · OUT FOR SEASON' : ''}${st === 'new' ? ' · not on the Week 1 chart' : st === 'off' ? ' · off the current chart' : st === 'none' ? ` · not on any ${SRC_NAME[src]} chart` : ''}`;
     const qbox = $('#quote-chart'); qbox.dataset.where = `source=${src}&player_id=${encodeURIComponent(q.player_id)}`;
     const EW = new Map(); for (const r of d.espn_weekly.data) { if (!EW.has(r.player_id)) EW.set(r.player_id, []); EW.get(r.player_id).push(r); }
     const EP = new Map(d.espn_player.data.map((r) => [r.player_id, r]));
@@ -1882,7 +1891,7 @@ dash.calc('trade_values', {
     }));
 
     // Movers (by value added)
-    const moved = rows.filter((r) => r[F('chg')] != null).sort((a, c) => c[F('chg')] - a[F('chg')]);
+    const moved = rows.filter((r) => r[F('chg')] != null && !r.out).sort((a, c) => c[F('chg')] - a[F('chg')]);
     const moverList = (list) => list.map((r) => {
       const li = el('li'); li.dataset.key = r.player_id;
       const who = el('div', 'who'); who.append(el('div', null, r.name), el('div', null, `${r.pos} · ${r.owner} · Wk 1 ${fmtV(src, r[F('start')])} → ${fmtV(src, r[F('now')])}`));
@@ -1929,7 +1938,7 @@ dash.calc('trade_values', {
 })();
 </script>
 
-<p class="site-foot">Data updated Nov 3, 2026. Change your team anytime with "Your team" at the top.</p>
+<p class="site-foot">Data updated Nov 4, 2026. Change your team anytime with "Your team" at the top.</p>
 </main>
 <dialog id="pick-team" aria-labelledby="pick-title">
   <div class="pick-in">
