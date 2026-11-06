@@ -122,6 +122,9 @@
   .tvx-meter-track input::-moz-range-thumb { pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; background: var(--color-panel);
     border: 3px solid var(--cds-chart-categorical-1); cursor: grab; box-sizing: border-box; }
   .tvx-meter-track input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+  .tvx-shape-row { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-top: 10px; }
+  .tvx-shape-row .tvx-seg { flex: 0 1 auto; flex-wrap: wrap; max-width: 100%; }
+  @media (max-width: 560px) { .tvx-shape-row > .tvx-tile-label { flex-basis: 100%; } }
   .tvx-meter-scale { display: flex; justify-content: space-between; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
   .tvx-tb-grid { display: grid; gap: var(--cds-gap-md); grid-template-columns: minmax(0, 1fr); margin-top: var(--cds-gap-md); }
   @media (min-width: 980px) { .tvx-tb-grid > .tvx-side { display: flex; flex-direction: column; }
@@ -259,7 +262,7 @@
   .tvx-pcell { display: flex; align-items: center; gap: var(--cds-gap-sm); }
   .tvx-pname { font-weight: 600; }
   .tvx-outtag { display: block; font-size: var(--cds-font-size-caption); font-weight: 600; color: var(--color-bad); white-space: nowrap; }
-  .tvx-byetag { display: block; font-size: var(--cds-font-size-caption); font-weight: 600; color: var(--color-warn); white-space: nowrap; }
+  .tvx-byetag { display: block; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); white-space: nowrap; }
   tr.is-new .tvx-pcell::after, tr.is-off .tvx-pcell::after { font-family: var(--tvx-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--color-border-line); font-weight: 400; }
   tr.is-new .tvx-pcell::after { content: "New"; color: var(--color-fg-muted); }
   tr.is-off .tvx-pcell::after { content: "Off chart"; color: var(--tvx-down); }
@@ -452,7 +455,7 @@
           <div class="tvx-chart" id="quote-pts" data-source="espn_weekly"></div>
           <ul class="tvx-notes">
             <li><b>Line:</b> ESPN's projection each week · <b>dots:</b> points scored, green above it, red below</li>
-            <li><b>Shaded:</b> not played yet · <b><span class="tvx-mk-bye">B</span></b> bye · <b><span class="tvx-mk-out">✕</span></b> didn't play</li>
+            <li><b>Shaded:</b> not played yet · <b><span class="tvx-mk-bye">B</span></b> bye · <b><span class="tvx-mk-out">DNP</span></b> didn't play · <b><span class="tvx-mk-out">O</span></b> projected out</li>
           </ul>
         </div>
       </div>
@@ -493,7 +496,7 @@
     <ul class="tvx-notes">
       <li><b>Played weeks:</b> points scored · <b>later weeks</b> (italic): ESPN's projection</li>
       <li><b>Green / red:</b> beat or fell short of ESPN's projection that week</li>
-      <li><b><span class="tvx-mk-bye">B</span></b> bye · <b><span class="tvx-mk-out">✕</span></b> didn't play (or projected out)</li>
+      <li><b><span class="tvx-mk-bye">B</span></b> bye · <b><span class="tvx-mk-out">DNP</span></b> didn't play · <b><span class="tvx-mk-out">O</span></b> projected out</li>
       <li>Follows the board's filters and sort</li>
     </ul>
     <div class="tvx-legend"><span><i style="background:var(--tvx-up-bg);outline:1px solid var(--tvx-up)"></i>Beat expected</span><span><i style="background:var(--tvx-down-bg);outline:1px solid var(--tvx-down)"></i>Fell short</span><span><i style="outline:1px dashed var(--color-fg-muted)"></i>ESPN projection (not played yet)</span></div>
@@ -507,6 +510,7 @@
     <details class="tvx-how"><summary>How it works</summary><ul class="tvx-notes">
       <li><b>Build:</b> pick a team on each side and check what each sends, or switch to Any players</li>
       <li><b>Trade ideas:</b> two at a time, across every team (All teams) or the one you pick</li>
+      <li><b>Deal size:</b> 1 for 1, 2 for 2, 1 for 2, 1 for 3 or 2 for 3 (either way); Any mixes them</li>
       <li><b>Fairness range:</b> drag the two handles to set how lopsided ideas can be, e.g. +5% to +10% for only trades you win</li>
       <li>Each says who wins by trade value · <b>fair</b> = within 5%</li>
       <li><b>×</b> swaps in the next trade · <b>Load</b> puts it in the builder · <b>Refresh</b> shows the next two</li>
@@ -535,6 +539,9 @@
             <input type="range" id="tb-hi" min="-25" max="25" step="1" aria-label="Fairness range: high end (positive = you win)">
           </div>
           <div class="tvx-meter-scale"><span>They win 25%</span><span>Even</span><span>You win 25%</span></div>
+          <div class="tvx-shape-row"><span class="tvx-tile-label">Deal size</span>
+            <div class="tvx-seg" id="tb-shape" role="group" aria-label="Deal size"><button type="button" data-shape="any">ANY</button><button type="button" data-shape="1-1">1 FOR 1</button><button type="button" data-shape="2-2">2 FOR 2</button><button type="button" data-shape="1-2">1 FOR 2</button><button type="button" data-shape="1-3">1 FOR 3</button><button type="button" data-shape="2-3">2 FOR 3</button></div>
+          </div>
         </div>
         <div class="tvx-finds" id="tb-finds" hidden></div>
       </div>
@@ -635,7 +642,7 @@
           <li>Weeks 1–4 use CBS + ESPN only; RSJ and FantasyCalc enter from Week 4</li>
           <li>Week N charts come out before Week N's games, so they reflect games through Week N−1</li>
           <li>Bye still ahead: value trimmed by half of one game's share of the weeks left through Week 16 (about 6% at Week 9), back to full once the bye passes</li>
-          <li>Trade value chart: <b><span class="tvx-mk-bye">B</span></b> bye week · <b><span class="tvx-mk-out">✕</span></b> didn't play</li>
+          <li>Trade value chart: <b><span class="tvx-mk-bye">B</span></b> bye week · <b><span class="tvx-mk-out">DNP</span></b> didn't play</li>
         </ul>
       </div>
       <div>
@@ -1169,6 +1176,7 @@ dash.calc('trade_values', {
   const APART = { [HOME]: [['puka-nacua', 'nico-collins']] };
   const trade = { mode: 'teams', vsrc: 'consensus', teamA: ME, teamB: '__all', apart: APART[ME] || [], a: new Set(), b: new Set(), qa: '', qb: '', keep: (KEEP[ME] ||= new Set()) };
   // Fairness range for trade ideas, in % of the bigger side (+ = you win); remembered in this browser
+  trade.shape = (() => { try { const s = localStorage.getItem('tvx-trade-shape'); if (s === 'any' || TRADE_SHAPES.includes(s)) return s; } catch {} return 'any'; })();
   trade.range = (() => { try { const r = JSON.parse(localStorage.getItem('tvx-trade-range')); if (Array.isArray(r) && r.length === 2 && r.every(Number.isFinite) && r[0] <= r[1]) return r; } catch {} return [-15, 15]; })();
   $('#tvx-me').addEventListener('change', (e) => {
     ME = e.target.value; try { localStorage.setItem('tvx-me', ME); } catch {}
@@ -1243,24 +1251,31 @@ dash.calc('trade_values', {
     const val = $('#tb-meter-val'); val.textContent = rangeText(trade.range); val.className = 'tvx-meter-val' + (lo >= 0 && hi > 0 ? ' up' : hi <= 0 && lo < 0 ? ' down' : '');
     $('#tb-lo').setAttribute('aria-valuetext', rangeText([lo, lo])); $('#tb-hi').setAttribute('aria-valuetext', rangeText([hi, hi]));
   }
-  let rangeTimer;
   const onRange = (end) => (e) => {
     let v = Number(e.target.value);
     if (end === 0) v = Math.min(v, trade.range[1]); else v = Math.max(v, trade.range[0]); // handles can meet, not cross
     trade.range = end === 0 ? [v, trade.range[1]] : [trade.range[0], v];
     showRange();
     try { localStorage.setItem('tvx-trade-range', JSON.stringify(trade.range)); } catch {}
-    clearTimeout(rangeTimer); rangeTimer = setTimeout(() => { trade.finds = null; renderFinds(); phoneClamp(); }, 120);
   };
   $('#tb-lo').addEventListener('input', onRange(0)); $('#tb-hi').addEventListener('input', onRange(1));
+  const research = () => { if (trade.finds && trade.finds.key.endsWith(JSON.stringify([trade.range, trade.shape]).slice(1))) return; trade.finds = null; renderFinds(); phoneClamp(); };
+  $('#tb-lo').addEventListener('change', research); $('#tb-hi').addEventListener('change', research);
   // A press on the bar moves whichever handle is nearer (the handles only take pointer events on their thumbs)
   $('.tvx-meter-track').addEventListener('pointerdown', (e) => {
     if (e.target.tagName === 'INPUT') return; // a thumb: the input drags itself
     const box = e.currentTarget.getBoundingClientRect(), r = 10, p = Math.max(0, Math.min(1, (e.clientX - box.left - r) / (box.width - 2 * r)));
     const v = Math.round(p * 50 - 25), end = v < trade.range[0] || (v <= trade.range[1] && v - trade.range[0] <= trade.range[1] - v) ? 0 : 1;
-    const inp = end === 0 ? $('#tb-lo') : $('#tb-hi'); inp.value = v; inp.dispatchEvent(new Event('input')); inp.focus();
+    const inp = end === 0 ? $('#tb-lo') : $('#tb-hi'); inp.value = v; inp.dispatchEvent(new Event('input')); inp.dispatchEvent(new Event('change')); inp.focus();
   });
   showRange();
+  segPick('#tb-shape', 'shape', trade.shape);
+  $('#tb-shape').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-shape]'); if (!b) return;
+    trade.shape = b.dataset.shape; segPick('#tb-shape', 'shape', trade.shape);
+    try { localStorage.setItem('tvx-trade-shape', trade.shape); } catch {}
+    trade.finds = null; renderFinds(); phoneClamp();
+  });
   $('#tb-clear').addEventListener('click', () => { trade.a.clear(); trade.b.clear(); trade.qa = ''; trade.qb = ''; trade.finds = null; renderTrade(); });
   $('#wv-pos').addEventListener('click', (e) => { const b = e.target.closest('button[data-pos]'); if (!b) return; wv.pos = b.dataset.pos; segPick('#wv-pos', 'pos', wv.pos); render(); });
   $('#wv-up').addEventListener('change', (e) => { wv.up = e.target.checked; render(); });
@@ -1351,10 +1366,10 @@ dash.calc('trade_values', {
     const marks = rows.filter((p) => p.status === 'bye' || p.status === 'out');
     svg.selectAll('text.mk').data(marks).join('text')
       .attr('class', (p) => p.status === 'bye' ? 'tvx-mk-bye' : 'tvx-mk-out')
-      .attr('x', (p) => x(p.week)).attr('y', (p) => lineY(p.week) + 5).attr('text-anchor', 'middle').attr('font-size', 14)
+      .attr('x', (p) => x(p.week)).attr('y', (p) => lineY(p.week) + 5).attr('text-anchor', 'middle').attr('font-size', (p) => p.status === 'out' && !p.forward ? 10 : 14).attr('font-weight', 700)
       .attr('fill', (p) => p.status === 'bye' ? 'var(--color-warn)' : 'var(--color-bad)')
       .attr('paint-order', 'stroke').attr('stroke', 'var(--color-panel)').attr('stroke-width', 3)
-      .text((p) => p.status === 'bye' ? 'B' : '✕');
+      .text((p) => p.status === 'bye' ? 'B' : p.forward ? 'O' : 'DNP');
     const rule = svg.append('line').attr('y1', 12).attr('y2', H - 26).attr('stroke', 'var(--cds-chart-axis)').attr('opacity', 0);
     const tip = el('div', 'tvx-tip'); tip.hidden = true; box.append(tip);
     svg.append('rect').attr('width', W).attr('height', H).attr('fill', 'transparent')
@@ -1412,10 +1427,10 @@ dash.calc('trade_values', {
     const marks = pts.filter((p) => miss.has(p.week));
     svg.selectAll('text.mk').data(marks).join('text')
       .attr('class', (p) => miss.get(p.week) === 'bye' ? 'tvx-mk-bye' : 'tvx-mk-out')
-      .attr('x', (p) => x(p.week)).attr('y', (p) => yOf(p) - 9).attr('text-anchor', 'middle').attr('font-size', 13)
+      .attr('x', (p) => x(p.week)).attr('y', (p) => yOf(p) - 9).attr('text-anchor', 'middle').attr('font-size', (p) => miss.get(p.week) === 'bye' ? 13 : 10).attr('font-weight', 700)
       .attr('fill', (p) => miss.get(p.week) === 'bye' ? 'var(--color-warn)' : 'var(--color-bad)')
       .attr('paint-order', 'stroke').attr('stroke', 'var(--color-panel)').attr('stroke-width', 3)
-      .text((p) => miss.get(p.week) === 'bye' ? 'B' : '✕');
+      .text((p) => miss.get(p.week) === 'bye' ? 'B' : 'DNP');
     const rule = svg.append('line').attr('y1', 10).attr('y2', H - 26).attr('stroke', 'var(--cds-chart-axis)').attr('opacity', 0);
     const tip = el('div', 'tvx-tip'); tip.hidden = true; box.append(tip);
     const md = d3.utcFormat('%b %-d');
@@ -1602,7 +1617,12 @@ dash.calc('trade_values', {
     return { adjA, adjB, gap, gapPct: gap / (Math.max(adjA, adjB) || 1) };
   }
   
-  function findEvenTrades(players, { teamA, teamB = null, src = 'consensus', lockA = [], lockB = [], keep = [], apart = [], lo = -0.15, hi = 0.15, floor = 3, maxSide = 2, limit = 6 } = {}) {
+  const TRADE_SHAPES = ['2-2', '1-1', '1-2', '2-3', '1-3'];
+  const shapeOf = (m, n) => Math.min(m, n) + '-' + Math.max(m, n);
+  function findEvenTrades(players, { teamA, teamB = null, src = 'consensus', lockA = [], lockB = [], keep = [], apart = [], lo = -0.15, hi = 0.15, floor = 3, maxSide = 3, shapes = TRADE_SHAPES, limit = 6 } = {}) {
+    const allowed = new Set(shapes.map((s) => s.split('-').reduce((x, n) => x * 10 + Number(n), 0))); // '2-3' -> 23
+    const metas = new Map(); // each package's total and best player, computed once
+    const meta = (l) => metas.get(l) || metas.set(l, { sum: l.reduce((s, p) => s + val(p), 0), top: l.reduce((x, p) => Math.max(x, val(p)), 0) }).get(l);
     const val = (p) => Number(p[src]) || 0;
     const NEED = { QB: 1, RB: 2, WR: 2, TE: 1 };
     const rosters = new Map();
@@ -1616,7 +1636,10 @@ dash.calc('trade_values', {
       const out = [];
       for (let i = 0; i < free.length; i++) {
         out.push([free[i]]);
-        if (maxSide > 1) for (let j = i + 1; j < free.length; j++) out.push([free[i], free[j]]);
+        if (maxSide > 1) for (let j = i + 1; j < free.length; j++) {
+          out.push([free[i], free[j]]);
+          if (maxSide > 2) for (let k = j + 1; k < free.length; k++) out.push([free[i], free[j], free[k]]);
+        }
       }
       return out;
     };
@@ -1633,25 +1656,29 @@ dash.calc('trade_values', {
     for (const t of others) {
       const bCombos = combos(roster(t), teamB ? lockB : []);
       for (const a of aCombos) for (const b of bCombos) {
-        if (Math.abs(a.length - b.length) > 1) continue;
+        if (!allowed.has(Math.min(a.length, b.length) * 10 + Math.max(a.length, b.length))) continue;
         if (apart.some((pair) => pair.every((id) => a.some((p) => p.player_id === id)))) continue; // e.g. Nacua and Collins: only one may go
-        const r = tradeEval(a, b, val);
+        const ma = meta(a), mb = meta(b); // same result as tradeEval(a, b, val), from the cached totals
+        let adjA = mb.sum, adjB = ma.sum;
+        if (mb.top > ma.top) adjA += mb.top - ma.top; else if (ma.top > mb.top) adjB += ma.top - mb.top;
+        const r = { adjA, adjB, gap: adjA - adjB, gapPct: (adjA - adjB) / (Math.max(adjA, adjB) || 1) };
         if (r.gapPct < lo - 1e-9 || r.gapPct > hi + 1e-9) continue; // outside the fairness range
         if (!lineupOk(teamA, a, b) || !lineupOk(t, b, a)) continue;
         const total = r.adjA + r.adjB;
-        found.push({ teamB: t, a: a.map((p) => p.player_id), b: b.map((p) => p.player_id), ...r, total, score: total * (1 - 1.5 * Math.abs(r.gapPct - (lo + hi) / 2)) });
+        found.push({ teamB: t, a: a.map((p) => p.player_id), b: b.map((p) => p.player_id), shape: shapeOf(a.length, b.length), ...r, total, score: total * (1 - 1.5 * Math.abs(r.gapPct - (lo + hi) / 2)) });
       }
     }
     // Bigger deals nearer the middle of the range first (score shrinks with distance from it), then the ones that lean your way.
-    // Up to `limit` per team; within a team, a player you didn't pick shows up in at most two suggestions.
+    // Up to `limit` per team and deal size; within those, a player you didn't pick shows up in at most two suggestions.
     found.sort((x, y) => y.score - x.score || y.gap - x.gap);
     const locked = new Set([...lockA, ...lockB]), uses = new Map(), per = new Map(), out = [];
     for (const f of found) {
-      if ((per.get(f.teamB) || 0) >= limit) continue;
-      const ids = [...f.a, ...f.b].filter((id) => !locked.has(id)).map((id) => f.teamB + '|' + id);
+      const lane = f.teamB + '|' + f.shape;
+      if ((per.get(lane) || 0) >= limit) continue;
+      const ids = [...f.a, ...f.b].filter((id) => !locked.has(id)).map((id) => lane + '|' + id);
       if (ids.some((id) => (uses.get(id) || 0) >= 2)) continue;
       ids.forEach((id) => uses.set(id, (uses.get(id) || 0) + 1));
-      per.set(f.teamB, (per.get(f.teamB) || 0) + 1);
+      per.set(lane, (per.get(lane) || 0) + 1);
       out.push(f);
     }
     return out;
@@ -1677,11 +1704,12 @@ dash.calc('trade_values', {
   function runFinder(rotate) {
     if (trade.mode !== 'teams') return;
     const teamB = trade.teamB === '__all' ? null : trade.teamB;
-    const key = JSON.stringify([trade.teamA, teamB, trade.vsrc, [...trade.a], teamB ? [...trade.b] : [], [...trade.keep], trade.range]);
+    const key = JSON.stringify([trade.teamA, teamB, trade.vsrc, [...trade.a], teamB ? [...trade.b] : [], [...trade.keep], trade.range, trade.shape]);
     const round = rotate && trade.finds && trade.finds.key === key ? trade.finds.round + 1 : 0;
-    const list = findEvenTrades([...TV.values()], { teamA: trade.teamA, teamB, src: trade.vsrc, lockA: [...trade.a], lockB: teamB ? [...trade.b] : [], keep: [...trade.keep], apart: trade.apart, lo: trade.range[0] / 100, hi: trade.range[1] / 100 });
-    const groups = spreadByTeam(list), queue = [];
-    for (let i = 0; groups.some((g) => i < g.list.length); i++) groups.forEach((g) => { if (i < g.list.length) queue.push(g.list[i]); });
+    const list = findEvenTrades([...TV.values()], { teamA: trade.teamA, teamB, src: trade.vsrc, lockA: [...trade.a], lockB: teamB ? [...trade.b] : [], keep: [...trade.keep], apart: trade.apart, lo: trade.range[0] / 100, hi: trade.range[1] / 100, shapes: trade.shape === 'any' ? TRADE_SHAPES : [trade.shape] });
+    const roundRobin = (lists) => { const q = []; for (let i = 0; lists.some((l) => i < l.length); i++) lists.forEach((l) => { if (i < l.length) q.push(l[i]); }); return q; };
+    const lanes = TRADE_SHAPES.map((s) => roundRobin(spreadByTeam(list.filter((f) => f.shape === s)).map((g) => g.list))).filter((l) => l.length);
+    const queue = roundRobin(lanes);
     const n = queue.length, start = n ? (round * 2) % n : 0, shown = [];
     for (let i = 0; i < Math.min(2, n); i++) shown.push((start + i) % n);
     trade.finds = { key, round, queue, shown, next: start + 2, all: !teamB, src: trade.vsrc, locked: trade.a.size + (teamB ? trade.b.size : 0) };
@@ -1694,9 +1722,10 @@ dash.calc('trade_values', {
     $('#tb-meter').hidden = trade.mode !== 'teams';
     if (box.hidden) { box.replaceChildren(); return; }
     const S = F.src, name = (id) => TV.get(id);
+    const sizeText = trade.shape === 'any' ? '' : ' · ' + trade.shape.replace('-', ' for ');
     const kept = [...trade.keep].map(name).filter((p) => p && p.owner === trade.teamA && !trade.a.has(p.player_id)).map((p) => p.name);
     const top = el('div', 'tvx-finds-top');
-    top.append(el('span', 'tvx-tile-label', (F.all ? 'Trade ideas · every team' : 'Trade ideas · ' + trade.teamB) + ' · ' + rangeText(trade.range)));
+    top.append(el('span', 'tvx-tile-label', (F.all ? 'Trade ideas · every team' : 'Trade ideas · ' + trade.teamB) + ' · ' + rangeText(trade.range) + sizeText));
     const refresh = el('button', 'tvx-btn tvx-btn-go', 'Refresh trades'); refresh.type = 'button'; refresh.id = 'tb-find';
     refresh.addEventListener('click', () => { runFinder(true); renderFinds(); });
     top.append(refresh);
@@ -1706,7 +1735,7 @@ dash.calc('trade_values', {
       head.append(bit('For', trade.teamA), bit('Values', SRC_NAME[S]));
       if (F.locked) head.append(bit('Built around', 'your checked players'));
       if (kept.length) head.append(bit('Never trading', kept.join(', ')));
-    } else head.append(el('span', null, `No trades in this range (${rangeText(trade.range).toLowerCase()}) for ${trade.teamA}${F.locked ? ' with those players' : ''} · widen the range, try another team or value source, or uncheck players`));
+    } else head.append(el('span', null, `No trades in this range (${rangeText(trade.range).toLowerCase()}${sizeText}) for ${trade.teamA}${F.locked ? ' with those players' : ''} · widen the range, try another team or value source, or uncheck players`));
     const nextIdx = () => {
       for (let k = 0; k < F.queue.length; k++) { const i = (F.next + k) % F.queue.length; if (!F.shown.includes(i)) { F.next = i + 1; return i; } }
       return -1;
@@ -1727,7 +1756,7 @@ dash.calc('trade_values', {
       const body = el('div', 'tvx-find-body'); body.append(side('You give', f.a), side('You get', f.b));
       const load = el('button', 'tvx-btn', 'Load'); load.type = 'button';
       load.addEventListener('click', () => { trade.teamB = f.teamB; trade.a = new Set(f.a); trade.b = new Set(f.b); renderTrade(); $('#tb-result').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
-      const foot = el('div', 'tvx-find-foot'); foot.append(el('span', 'tvx-tile-sub', `${fmtV(S, f.adjA)} vs ${fmtV(S, f.adjB)} · ${pa <= 5 ? 'fair' : 'uneven'}`), load);
+      const foot = el('div', 'tvx-find-foot'); foot.append(el('span', 'tvx-tile-sub', `${fmtV(S, f.adjA)} vs ${fmtV(S, f.adjB)} · ${pa <= 5 ? 'fair' : 'uneven'}${f.b.length > f.a.length ? ` · you drop ${f.b.length - f.a.length}` : ''}`), load);
       card.append(x, ttl, body, foot);
       return card;
     });
@@ -1942,7 +1971,7 @@ dash.calc('trade_values', {
         for (const w of pw) {
           const v = g['wk' + w], e = g['wk' + w + '_p'], f = g['wk' + w + '_f'];
           const s = g['wk' + w + '_s'];
-          const td = el('td', f ? 'tvx-proj' : null, v == null ? (s === 'bye' ? 'B' : '✕') : v.toFixed(1));
+          const td = el('td', f ? 'tvx-proj' : null, v == null ? (s === 'bye' ? 'B' : f ? 'O' : 'DNP') : v.toFixed(1));
           if (v == null) td.classList.add(s === 'bye' ? 'tvx-bye' : 'tvx-out');
           if (v == null) td.classList.add('tvx-muted');
           else if (!f && e != null) {
